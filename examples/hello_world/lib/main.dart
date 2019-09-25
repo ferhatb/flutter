@@ -4,6 +4,7 @@
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart';
 
 void main() => runApp(MyApp());
 
@@ -13,7 +14,7 @@ class MyApp extends StatefulWidget {
 }
 
 class MyAppState extends State<MyApp> {
-  double _startAngle = 0, _endAngle = 360;
+  double _startAngle = 0, _endAngle = 360, _rotation = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +37,10 @@ class MyAppState extends State<MyApp> {
                 value: _endAngle, min: 0, max: 360, label: 'End Angle',
                 onChanged: (double value) {setState(() {_endAngle = value;});},
             ),
+            Slider(
+              value: _rotation, min: 0, max: 180, label: 'Rotation',
+              onChanged: (double value) {setState(() {_rotation = value;});},
+            ),
           ]),
         ),
       ]),
@@ -55,14 +60,30 @@ class MyPainter extends CustomPainter {
         ..strokeWidth = 2
         ..color = Colors.redAccent;
     final double start = myappState._startAngle * math.pi / 180.0;
+    final double rotation = myappState._rotation;// * math.pi / 180.0;
     final double sweep = (myappState._endAngle - myappState._startAngle) * math.pi / 180.0;
     //canvas.drawArc(const Rect.fromLTRB(200, 50, 400, 150), start, sweep, false,  paint);
     final Path path = Path();
-    path.addArc(const Rect.fromLTRB(200, 50, 400, 150), start, sweep);
+    const double cx = 300.0;
+    const double cy = 100.0;
+    const double rx = 200.0;
+    const double ry = 25.0;
+    //path.addArc(const Rect.fromLTRB(cx - rx, cy - ry, cx + rx, cy + ry), start, sweep);
+    bool clockwise = sweep >= 0;
+//    final Offset startPoint = Offset(rx*math.cos(start) + cx,
+//        ry*math.sin(start+sweep) + cy);
+//    final Offset endPoint = Offset(rx*math.cos(start) + cx,
+//        ry*math.sin(start+sweep) + cy);
+    final Offset startPoint = Offset(cx + (rx*math.cos(start)), cy + (ry * math.sin(start)));
+    final Offset endPoint = Offset(cx + (rx*math.cos(start+sweep)), cy + (ry*math.sin(start+sweep)));
+    path.moveTo(startPoint.dx, startPoint.dy);
+
+    path.arcToPoint(endPoint, radius: const Radius.elliptical(rx, ry), clockwise: clockwise,
+        largeArc: sweep.abs() > math.pi, rotation: rotation);
     canvas.drawPath(path, paint);
 
     final Path bezierPath = Path();
-    _drawArcWithBezier(300, 300, 100, 50, start, sweep, bezierPath);
+    _drawArcWithBezier(cx, cy + 4 * ry, rx, ry, start, sweep, bezierPath);
     canvas.drawPath(bezierPath, paint);
   }
 
