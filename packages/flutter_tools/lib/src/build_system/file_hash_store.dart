@@ -22,8 +22,7 @@ class FileStorage {
     final int version = json['version'];
     final List<Object> rawCachedFiles = json['files'];
     final List<FileHash> cachedFiles = <FileHash>[
-      for (Map<String, Object> rawFile in rawCachedFiles)
-        FileHash.fromJson(rawFile)
+      for (Map<String, Object> rawFile in rawCachedFiles) FileHash.fromJson(rawFile),
     ];
     return FileStorage(version, cachedFiles);
   }
@@ -35,8 +34,7 @@ class FileStorage {
     final Map<String, Object> json = <String, Object>{
       'version': version,
       'files': <Object>[
-        for (FileHash file in files)
-          file.toJson()
+        for (FileHash file in files) file.toJson(),
       ],
     };
     return utf8.encode(jsonEncode(json));
@@ -103,7 +101,7 @@ class FileHashStore {
     FileStorage fileStorage;
     try {
       fileStorage = FileStorage.fromBuffer(data);
-    } on FormatException {
+    } catch (err) {
       printTrace('Filestorage format changed');
       _cacheFile.deleteSync();
       return;
@@ -123,7 +121,7 @@ class FileHashStore {
     printTrace('Persisting file store');
     final File file = _cacheFile;
     if (!file.existsSync()) {
-      file.createSync();
+      file.createSync(recursive: true);
     }
     final List<FileHash> fileHashes = <FileHash>[];
     for (MapEntry<String, String> entry in currentHashes.entries) {

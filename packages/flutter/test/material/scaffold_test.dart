@@ -103,8 +103,8 @@ void main() {
       ),
       child: Scaffold(
         body: Container(key: bodyKey),
-      ))
-    ));
+      ),
+    )));
 
     final RenderBox bodyBox = tester.renderObject(find.byKey(bodyKey));
     expect(bodyBox.size, equals(const Size(800.0, 0.0)));
@@ -219,7 +219,7 @@ void main() {
           padding: EdgeInsets.only(bottom: 20.0),
         ),
         child: child,
-      )
+      ),
     );
     final Offset initialPoint = tester.getCenter(find.byType(Placeholder));
     // Consume bottom padding - as if by the keyboard opening
@@ -275,7 +275,7 @@ void main() {
             ],
           ),
         ),
-      )
+      ),
     );
 
     final ScaffoldState state = tester.firstState(find.byType(Scaffold));
@@ -398,7 +398,7 @@ void main() {
           padding: EdgeInsets.only(bottom: 20.0),
         ),
         child: child,
-      )
+      ),
     );
     final Offset initialPoint = tester.getCenter(find.byType(Placeholder));
     // Consume bottom padding - as if by the keyboard opening
@@ -487,7 +487,7 @@ void main() {
           padding: EdgeInsets.only(bottom: 20.0),
         ),
         child: child,
-      )
+      ),
     );
     final Offset initialPoint = tester.getCenter(find.byType(Placeholder));
     // Consume bottom padding - as if by the keyboard opening
@@ -546,7 +546,7 @@ void main() {
         MaterialApp(
           theme: ThemeData(platform: platform),
           home: Scaffold(appBar: AppBar(), body: const Text('Page 1')),
-        )
+        ),
       );
 
       tester.state<NavigatorState>(find.byType(Navigator)).push(routeBuilder());
@@ -562,6 +562,15 @@ void main() {
     PageRoute<void> materialRouteBuilder() {
       return MaterialPageRoute<void>(
         builder: (BuildContext context) {
+          return Scaffold(appBar: AppBar(), body: const Text('Page 2'));
+        },
+        fullscreenDialog: true,
+      );
+    }
+
+    PageRoute<void> pageRouteBuilder() {
+      return PageRouteBuilder<void>(
+        pageBuilder: (BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation) {
           return Scaffold(appBar: AppBar(), body: const Text('Page 2'));
         },
         fullscreenDialog: true,
@@ -587,6 +596,18 @@ void main() {
 
     testWidgets('Close button shows correctly on iOS', (WidgetTester tester) async {
       await expectCloseIcon(tester, TargetPlatform.iOS, Icons.close, materialRouteBuilder);
+    });
+
+    testWidgets('Close button shows correctly with PageRouteBuilder on Android', (WidgetTester tester) async {
+      await expectCloseIcon(tester, TargetPlatform.android, Icons.close, pageRouteBuilder);
+    });
+
+    testWidgets('Close button shows correctly with PageRouteBuilder on Fuchsia', (WidgetTester tester) async {
+      await expectCloseIcon(tester, TargetPlatform.fuchsia, Icons.close, pageRouteBuilder);
+    });
+
+    testWidgets('Close button shows correctly with PageRouteBuilder on iOS', (WidgetTester tester) async {
+      await expectCloseIcon(tester, TargetPlatform.iOS, Icons.close, pageRouteBuilder);
     });
 
     testWidgets('Close button shows correctly with custom page route on Android', (WidgetTester tester) async {
@@ -1134,7 +1155,7 @@ void main() {
                 icon: Icon(Icons.add),
                 title: Text('test'),
               ),
-            ]
+            ],
           ),
         ),
       );
