@@ -59,32 +59,44 @@ class MyPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
         ..color = Colors.redAccent;
-    final double start = myappState._startAngle * math.pi / 180.0;
-    final double rotation = myappState._rotation;// * math.pi / 180.0;
-    final double sweep = (myappState._endAngle - myappState._startAngle) * math.pi / 180.0;
-    //canvas.drawArc(const Rect.fromLTRB(200, 50, 400, 150), start, sweep, false,  paint);
-    final Path path = Path();
-    const double cx = 300.0;
-    const double cy = 100.0;
-    const double rx = 200.0;
-    const double ry = 25.0;
-    //path.addArc(const Rect.fromLTRB(cx - rx, cy - ry, cx + rx, cy + ry), start, sweep);
-    bool clockwise = sweep >= 0;
-//    final Offset startPoint = Offset(rx*math.cos(start) + cx,
-//        ry*math.sin(start+sweep) + cy);
-//    final Offset endPoint = Offset(rx*math.cos(start) + cx,
-//        ry*math.sin(start+sweep) + cy);
-    final Offset startPoint = Offset(cx + (rx*math.cos(start)), cy + (ry * math.sin(start)));
-    final Offset endPoint = Offset(cx + (rx*math.cos(start+sweep)), cy + (ry*math.sin(start+sweep)));
-    path.moveTo(startPoint.dx, startPoint.dy);
+//     final double start = myappState._startAngle * math.pi / 180.0;
+//     final double rotation = myappState._rotation;// * math.pi / 180.0;
+//     final double sweep = (myappState._endAngle - myappState._startAngle) * math.pi / 180.0;
+//     //canvas.drawArc(const Rect.fromLTRB(200, 50, 400, 150), start, sweep, false,  paint);
+//     final Path path = Path();
+//     const double cx = 300.0;
+//     const double cy = 100.0;
+//     const double rx = 200.0;
+//     const double ry = 25.0;
+//     //path.addArc(const Rect.fromLTRB(cx - rx, cy - ry, cx + rx, cy + ry), start, sweep);
+//     bool clockwise = sweep >= 0;
+// //    final Offset startPoint = Offset(rx*math.cos(start) + cx,
+// //        ry*math.sin(start+sweep) + cy);
+// //    final Offset endPoint = Offset(rx*math.cos(start) + cx,
+// //        ry*math.sin(start+sweep) + cy);
+//     final Offset startPoint = Offset(cx + (rx*math.cos(start)), cy + (ry * math.sin(start)));
+//     final Offset endPoint = Offset(cx + (rx*math.cos(start+sweep)), cy + (ry*math.sin(start+sweep)));
+//     path.moveTo(startPoint.dx, startPoint.dy);
 
-    path.arcToPoint(endPoint, radius: const Radius.elliptical(rx, ry), clockwise: clockwise,
-        largeArc: sweep.abs() > math.pi, rotation: rotation);
+//     path.arcToPoint(endPoint, radius: const Radius.elliptical(rx, ry), clockwise: clockwise,
+//         largeArc: sweep.abs() > math.pi, rotation: rotation);
+//     canvas.drawPath(path, paint);
+
+//     final Path bezierPath = Path();
+//     _drawArcWithBezier(cx, cy + 4 * ry, rx, ry, start, sweep, bezierPath);
+//     canvas.drawPath(bezierPath, paint);
+
+    final Path path = new Path();
+    path.moveTo(0,0);
+    path.lineTo(200, 200);
     canvas.drawPath(path, paint);
-
-    final Path bezierPath = Path();
-    _drawArcWithBezier(cx, cy + 4 * ry, rx, ry, start, sweep, bezierPath);
-    canvas.drawPath(bezierPath, paint);
+    final Path transformedPath = new Path();
+    final Matrix4 transformMatrix = Matrix4.rotationZ(myappState._startAngle * math.pi / 180.0);
+    transformedPath.addPath(path, Offset.zero, matrix4: transformMatrix.storage);
+    canvas.drawPath(transformedPath, new Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Colors.green);
   }
 
   void _drawArcWithBezier(double centerX, double centerY, double radiusX, double radiusY,
