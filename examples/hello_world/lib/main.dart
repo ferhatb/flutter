@@ -44,7 +44,7 @@ void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
 ///   [Optional Graphic Control] + Image Descriptor + ImageData or
 ///   [Optional Graphic Control] + Plain Text Extension
 ///
-/// Image Data:
+/// Image Descriptor:
 ///   Image seperator [2C]
 ///   16 bit ImageLeft
 ///   16 bit ImageTop
@@ -60,9 +60,60 @@ void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
 ///
 /// Trailer = 0x3B
 ///
+/// Lempel-Ziv Welch Gif variation
+/// LZW takes advantage of repetition inside raster data.
+/// The predefined code size determines the size of the dictionary table (called
+/// a stringtable, we use when converting from a codestream to a uncompressed
+/// charstream.
+///
+/// The string table for Gif not only includes the color indices but in addition
+/// has a ClearCode and EndOfInformationCode.
+///
+/// Pseudo code for compression:
+/// - Initialize string table based on code size (numBits)
+/// - set prefix = empty
+/// - loop while charstream not empty:
+/// -     read nextChar from charstream
+/// -     if (stringtable contains prefix+nextChar)
+/// -          prefix = prefix + nextChar
+/// -     else
+/// -          add prefix+nextChar to string table
+/// -          output prefix to codestream
+/// -          set prefix = nextChar
+/// - charstream empty so just output prefix and end
+///
+/// Basically as we see repeating prefix chains such as ab,abc,abcd we create
+/// entries in the stringtable for these common prefixes. Straight LZW runs the
+/// risk of overflowing the string table (more bits than you specified as max).
+///
+/// Pseudo code for decompression:
+/// - Initialize string table based on code size (numBits)
+/// - read first code , output stringtable content for code
+/// - set oldCode = code
+/// - read next code
+/// - loop
+/// -     if code exists in string table
+/// -         output string for code to charstream
+/// -         prefix = translation for oldCode
+/// -         add prefix+first character of translation for code to table
+/// -         oldCode = code
+/// -     else
+/// -         prefix = translation for old
+/// -         K = first character of prefix
+/// -         output prefix+K to charstream and add to string table
+/// -         oldCode = code
+/// -
+/// The codestream for GIF files uses flexible code sizes. It allows reducing
+/// the number of bits stored. The image data block begins with a single byte
+/// value called the LZW minimum code size (N). The GIF format allows any value
+/// between 2 and 12 bits. Minimum code size is typically based on number of
+/// colors. Since we also need a clear and end code, we need (N+1) bits to start
+/// with. As larger codes get added to table, the number of bits used for
+/// encoding grows. Once we have exhausted 12 bits, a ClearCode is emitted
+/// to clear the table to initial state (N+1) and start over.
 class GifCodec {
   static const String _gifExtension = '.gif';
-  static const int _kTrailerByte = 0x3B;
+  static const int _kEndOfGifStream = 0x3B;
 
   static const int _kExtensionHeader = 0x21;
   static const int _kImageDescriptorHeader = 0x2C;
@@ -88,6 +139,7 @@ class GifCodec {
   ByteData byteData;
 
   GifCodec(this.byteData) {
+    int totalBytes = byteData.lengthInBytes;
     int offset = kHeaderSize;
     logicalWidth = byteData.getUint16(offset, Endian.little);
     offset += 2;
@@ -110,10 +162,10 @@ class GifCodec {
     }
     final int numBytesInColorTable = _colorTableSize * 3;
     offset += numBytesInColorTable;
+    int header = 0;
+    while (offset < totalBytes) {
+       header = byteData.getUint8(offset++);
 
-    final int header = byteData.getUint8(offset++);
-
-    while (header != _kTrailerByte) {
       if (header == _kExtensionHeader) {
         final int extensionType = byteData.getUint8(offset++);
         switch(extensionType) {
@@ -140,6 +192,13 @@ class GifCodec {
             break;
           case _commentExtensionId:
             print('comment extension');
+            int blockLength = byteData.getUint8(offset++);
+            offset += blockLength;
+            print('${_byteDataToAscii(byteData, offset, blockLength)}');
+            int trailer = byteData.getUint8(offset++);
+            if (trailer != 0) {
+              throw const FormatException();
+            }
             break;
           case _graphicControlExtensionId:
             final int byteSize = byteData.getUint8(offset++);
@@ -167,7 +226,37 @@ class GifCodec {
             throw FormatException('Unexpected gif extension type $extensionType');
         }
       } else if (header == _kImageDescriptorHeader) {
+        print('Image descriptorHeader');
+        final int imageLeft = byteData.getUint16(offset, Endian.little);
+        offset += 2;
+        final int imageTop = byteData.getUint16(offset, Endian.little);
+        offset += 2;
+        final int imageWidth = byteData.getUint16(offset, Endian.little);
+        offset += 2;
+        final int imageHeight = byteData.getUint16(offset, Endian.little);
+        offset += 2;
+        print('  bounds = $imageLeft,$imageTop : $imageWidth,$imageHeight');
+        final int flags = byteData.getUint8(offset++);
+        final bool hasLocalColorTable = (flags & 0x80) != 0;
+        final bool interlace = (flags & 0x40) != 0;
+        final bool sorted = (flags & 0x20) != 0;
+        final int localColorTableSize = math.pow(2, (flags&7) + 1);
+        // Read local color table.
+        if (hasLocalColorTable) {
+          offset += 3 * localColorTableSize;
+        }
+        // Read Image data.
+        print('read image data');
+        final int lzwMinCodeSize = byteData.getUint8(offset++);
+        print('  lzwMinCodeSize = $lzwMinCodeSize');
+        final int subBlocksTotalSize = _readSubBlocksLength(byteData, offset);
+        print('  subblocks total data size = ${subBlocksTotalSize}');
+        final Uint8List imageData = Uint8List(subBlocksTotalSize);
+        offset = _readSubBlocks(byteData, offset, imageData);
 
+      } else if (header == _kEndOfGifStream) {
+        assert(offset == totalBytes);
+        break;
       } else {
         throw FormatException('Unexpect header code $header');
       }
@@ -198,6 +287,33 @@ String _byteDataToAscii(ByteData byteData, int offset, int length) {
     sb.writeCharCode(byte);
   }
   return sb.toString();
+}
+
+int _readSubBlocksLength(ByteData byteData, int offset) {
+  int lengthInBytes = 0;
+  int blockLength;
+  do {
+    blockLength = byteData.getUint8(offset++);
+    if (blockLength != 0) {
+      lengthInBytes += blockLength;
+      offset += blockLength;
+    }
+  } while (blockLength != 0);
+  return lengthInBytes;
+}
+
+int _readSubBlocks(ByteData byteData, int offset, Uint8List target) {
+  int destIndex = 0;
+  int blockLength;
+  do {
+    blockLength = byteData.getUint8(offset++);
+    if (blockLength != 0) {
+      for (int i = 0; i < blockLength; i++) {
+        target[destIndex++] = byteData.getUint8(offset++);
+      }
+    }
+  } while (blockLength != 0);
+  return offset;
 }
 
 class MyApp extends StatefulWidget {
