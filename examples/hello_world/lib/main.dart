@@ -217,10 +217,11 @@ class GifCodec {
             }
             final int blockTerminator = byteData.getUint8(offset++);
             if (blockTerminator != 0) {
-              throw FormatException();
+              throw const FormatException();
             }
             print('graphiccontrol extension');
             print('    hasTransparency = $hasTransparency, transparentColorIndex = $transparentColorIndex');
+            print('    delay = $delayTime');
             break;
           default:
             throw FormatException('Unexpected gif extension type $extensionType');
@@ -250,10 +251,11 @@ class GifCodec {
         final int lzwMinCodeSize = byteData.getUint8(offset++);
         print('  lzwMinCodeSize = $lzwMinCodeSize');
         final int subBlocksTotalSize = _readSubBlocksLength(byteData, offset);
-        print('  subblocks total data size = ${subBlocksTotalSize}');
-        final Uint8List imageData = Uint8List(subBlocksTotalSize);
-        offset = _readSubBlocks(byteData, offset, imageData);
-
+        print('  subblocks total data size = $subBlocksTotalSize');
+        final Uint8List compressedImageData = Uint8List(subBlocksTotalSize);
+        offset = _readSubBlocks(byteData, offset, compressedImageData);
+        final Uint8List imageData = _decompressGif(compressedImageData,
+            lzwMinCodeSize, imageWidth * imageHeight);
       } else if (header == _kEndOfGifStream) {
         assert(offset == totalBytes);
         break;
@@ -278,6 +280,131 @@ class GifCodec {
       print('Skipping unknown gif app extension $appId, $appAuth');
     }
   }
+}
+
+class _Dictionary {
+  _Dictionary(this.codeSize) {
+    clear();
+  }
+
+  final int codeSize;
+  int _length;
+  Map<int, String> dict = <int, String>{};
+
+  int get length => _length;
+
+  String operator [](int code) => dict[code];
+
+  void push(String value) {
+    dict[_length++] = value;
+  }
+
+  void clear() {
+    for (int i = 0; i < codeSize; i++) {
+      dict[i] = String.fromCharCode(i);
+    }
+    // Clear code.
+    dict[codeSize] = '';
+    // Stop code.
+    dict[codeSize + 1] = null;
+    _length = codeSize + 2;
+  }
+}
+
+Uint8List _decompressGif(Uint8List source, int minCodeSizeInBits,
+    int numPixels) {
+  final List<int> _lsbMask = <int>[0x0, 0x1, 0x3, 0x7, 0xF, 0x1F, 0x3F, 0x7F, 0xFF];
+
+  final Uint8List data = Uint8List(numPixels);
+  int writeIndex = 0;
+  final int minCodeSize = 1 << minCodeSizeInBits;
+  print('minCodeSizeInBits = $minCodeSize');
+  final int clearCode = minCodeSize;
+  print('clearCode = $clearCode');
+  final int stopCode = clearCode + 1;
+  final _Dictionary dict = _Dictionary(clearCode + 1);
+  final int totalBitsToRead = minCodeSizeInBits + 1;
+  int code;
+  int previousCode;
+  final int sourceLength = source.lengthInBytes;
+  int sourcePos = 0;
+  int sourceBitsAvailable = 8;
+  while (sourcePos < sourceLength) {
+    int sourceByte = source[sourcePos];
+    previousCode = code;
+    // Read numBits from source stream.
+    int bitsToRead = totalBitsToRead;
+    if (bitsToRead < sourceBitsAvailable) {
+      final int shiftR = sourceBitsAvailable - bitsToRead;
+      final int lsbMask = _lsbMask[bitsToRead];
+      code = (sourceByte >> shiftR) & lsbMask;
+      sourceBitsAvailable -= bitsToRead;
+    } else if (bitsToRead == sourceBitsAvailable) {
+      final int lsbMask = _lsbMask[bitsToRead];
+      code = sourceByte & lsbMask;
+      sourceBitsAvailable = 8;
+      ++sourcePos;
+    } else {
+      // First read sourceBitsAvailable and then read remaining from remaining
+      // bytes in input stream until bitsToRead is 0.
+      final int lsbMask = _lsbMask[sourceBitsAvailable];
+      code = sourceByte & lsbMask;
+      bitsToRead -= sourceBitsAvailable;
+      //final int decodedBitCount = sourceBitsAvailable;
+      ++sourcePos;
+      sourceBitsAvailable = 8;
+      sourceByte = source[sourcePos];
+      if (bitsToRead < 8) {
+        final int shiftR = sourceBitsAvailable - bitsToRead;
+        final int lsbMask = _lsbMask[bitsToRead];
+        code = (code << bitsToRead) | ((sourceByte >> shiftR) & lsbMask);
+        sourceBitsAvailable -= bitsToRead;
+      } else if (bitsToRead == 8) {
+        final int lsbMask = _lsbMask[8];
+        code = (code << 8) | (sourceByte & lsbMask);
+        sourceBitsAvailable = 8;
+        ++sourcePos;
+      } else {
+        // Max number of bits is 12 for GIF LZW. Read 8 bits off of source and
+        // remaining bits from next.
+        final int lsbMask = _lsbMask[8];
+        code = (code << 8) | (sourceByte & lsbMask);
+        sourceBitsAvailable = 8;
+        ++sourcePos;
+        bitsToRead -= 8;
+        sourceByte = source[sourcePos];
+        assert(bitsToRead < 8);
+        final int shiftR = sourceBitsAvailable - bitsToRead;
+        code = (code << bitsToRead) | ((sourceByte >> shiftR) & _lsbMask[bitsToRead]);
+        sourceBitsAvailable -= bitsToRead;
+      }
+    }
+    print('code read = $code');
+    if (code == clearCode) {
+      dict.clear();
+      continue;
+    }
+    if (code == stopCode) {
+      print('**** Stop code reached ***');
+      break;
+    }
+    if (code < dict.length) {
+      if (previousCode != clearCode && previousCode != null) {
+        dict.push(dict[previousCode] + dict[code][0]);
+      }
+    } else {
+      if (code != dict.length) {
+        throw const FormatException('Invalid compression code');
+      }
+      dict.push(dict[previousCode] + dict[previousCode][0]);
+    }
+    final String dataToWrite = dict[code];
+    final int len = dataToWrite.length;
+    for (int i = 0; i < len; i++) {
+      data[writeIndex++] = dataToWrite.codeUnitAt(i);
+    }
+  }
+  return data;
 }
 
 String _byteDataToAscii(ByteData byteData, int offset, int length) {
