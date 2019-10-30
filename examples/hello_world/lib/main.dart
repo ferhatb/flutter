@@ -254,6 +254,22 @@ class GifCodec {
         print('  subblocks total data size = $subBlocksTotalSize');
         final Uint8List compressedImageData = Uint8List(subBlocksTotalSize);
         offset = _readSubBlocks(byteData, offset, compressedImageData);
+//        // Reverse bits.
+//        List<int> _reverse = List<int>(256);
+//        for (int i = 0; i < 256; i++) {
+//          _reverse[i] = ((i << 7) & 0x80) |
+//              ((i << 5) & 0x40) |
+//              ((i << 3) & 0x20) |
+//              ((i << 1) & 0x10) |
+//              ((i >> 1) & 0x08) |
+//              ((i >> 3) & 0x04) |
+//              ((i >> 5) & 0x02) |
+//              ((i >> 7) & 0x01);
+//        }
+//        final int len = compressedImageData.lengthInBytes;
+//        for (int i = 0; i < len; i++) {
+//          compressedImageData[i] = _reverse[compressedImageData[i]];
+//        }i
         final Uint8List imageData = _decompressGif(compressedImageData,
             lzwMinCodeSize, imageWidth * imageHeight);
       } else if (header == _kEndOfGifStream) {
@@ -307,7 +323,7 @@ class _Dictionary {
     dict[codeSize] = '';
     // Stop code.
     dict[codeSize + 1] = null;
-    _length = codeSize + 2;
+    _length = codeSize + 1;
   }
 }
 
@@ -335,47 +351,49 @@ Uint8List _decompressGif(Uint8List source, int minCodeSizeInBits,
     // Read numBits from source stream.
     int bitsToRead = totalBitsToRead;
     if (bitsToRead < sourceBitsAvailable) {
-      final int shiftR = sourceBitsAvailable - bitsToRead;
+      final int shiftR = 8 - sourceBitsAvailable;
       final int lsbMask = _lsbMask[bitsToRead];
       code = (sourceByte >> shiftR) & lsbMask;
       sourceBitsAvailable -= bitsToRead;
     } else if (bitsToRead == sourceBitsAvailable) {
       final int lsbMask = _lsbMask[bitsToRead];
-      code = sourceByte & lsbMask;
+      code = (sourceByte >> (8- sourceBitsAvailable)) & lsbMask;
       sourceBitsAvailable = 8;
       ++sourcePos;
     } else {
       // First read sourceBitsAvailable and then read remaining from remaining
       // bytes in input stream until bitsToRead is 0.
       final int lsbMask = _lsbMask[sourceBitsAvailable];
-      code = sourceByte & lsbMask;
+      code = (sourceByte >> (8 - sourceBitsAvailable)) & lsbMask;
       bitsToRead -= sourceBitsAvailable;
+      int bitsRead = sourceBitsAvailable;
       //final int decodedBitCount = sourceBitsAvailable;
       ++sourcePos;
       sourceBitsAvailable = 8;
       sourceByte = source[sourcePos];
       if (bitsToRead < 8) {
-        final int shiftR = sourceBitsAvailable - bitsToRead;
+        final int shiftR = 8 - sourceBitsAvailable;
         final int lsbMask = _lsbMask[bitsToRead];
-        code = (code << bitsToRead) | ((sourceByte >> shiftR) & lsbMask);
+        code = code | (((sourceByte >> shiftR) & lsbMask) << bitsRead);
         sourceBitsAvailable -= bitsToRead;
       } else if (bitsToRead == 8) {
         final int lsbMask = _lsbMask[8];
-        code = (code << 8) | (sourceByte & lsbMask);
+        code = code | ((sourceByte & lsbMask) << bitsRead);
         sourceBitsAvailable = 8;
         ++sourcePos;
       } else {
         // Max number of bits is 12 for GIF LZW. Read 8 bits off of source and
         // remaining bits from next.
         final int lsbMask = _lsbMask[8];
-        code = (code << 8) | (sourceByte & lsbMask);
+        code = code | ((sourceByte & lsbMask) << bitsRead);
         sourceBitsAvailable = 8;
         ++sourcePos;
         bitsToRead -= 8;
+        bitsRead += 8;
         sourceByte = source[sourcePos];
         assert(bitsToRead < 8);
-        final int shiftR = sourceBitsAvailable - bitsToRead;
-        code = (code << bitsToRead) | ((sourceByte >> shiftR) & _lsbMask[bitsToRead]);
+        final int shiftR = 8 - sourceBitsAvailable;
+        code = code | (((sourceByte >> shiftR) & _lsbMask[bitsToRead]) << bitsRead);
         sourceBitsAvailable -= bitsToRead;
       }
     }
