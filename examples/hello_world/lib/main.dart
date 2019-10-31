@@ -16,9 +16,9 @@ void main() {
 }
 
 void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
-   imageInfo.image.toByteData().then((ByteData byteData) {
-      final GifCodec gif = GifCodec(byteData);
-   });
+  imageInfo.image.toByteData().then((ByteData byteData) {
+    final GifCodec gif = GifCodec(byteData);
+  });
 }
 
 /// Decodes GIF into a set of frames.
@@ -112,6 +112,10 @@ void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
 /// encoding grows. Once we have exhausted 12 bits, a ClearCode is emitted
 /// to clear the table to initial state (N+1) and start over.
 class GifCodec {
+  GifCodec(this.byteData) {
+    decode();
+  }
+
   static const String _gifExtension = '.gif';
   static const int _kEndOfGifStream = 0x3B;
 
@@ -124,78 +128,106 @@ class GifCodec {
   static const int _commentExtensionId = 0xFE;
   static const int _graphicControlExtensionId = 0xF9;
 
+  // Size of Gif file format header.
   static int kHeaderSize = 6;
 
-  int logicalWidth;
-  int logicalHeight;
-  int pixelAspectRatio;
+  int _logicalWidth;
+  int _logicalHeight;
+  int _pixelAspectRatio;
   bool _hasGlobalColorTable;
   bool _colorTableSorted;
   int _bitsPerPixel;
-  int _colorTableSize;
+  int _globalColorTableSize;
   int _backgroundColorIndex;
-  int repeatCount = -1;
+  int _repeatCount = -1;
+  int _frameCount = 0;
 
   ByteData byteData;
 
-  GifCodec(this.byteData) {
-    int totalBytes = byteData.lengthInBytes;
+  int get width => _logicalWidth;
+
+  int get height => _logicalHeight;
+
+  int get repeatCount => _repeatCount;
+
+  int get frameCount => _frameCount;
+
+  bool get colorTableSorted => _colorTableSorted;
+
+  double get aspectRatio => (_pixelAspectRatio == 0) ? 0
+      : (_pixelAspectRatio + 15) / 64;
+
+  int get bitsPerPixel => _bitsPerPixel;
+
+  void decode() {
+    bool hasTransparency = false;
+    int transparentColorIndex;
+    int delayTime;
+
+    _frameCount = 0;
+    final int totalBytes = byteData.lengthInBytes;
     int offset = kHeaderSize;
-    logicalWidth = byteData.getUint16(offset, Endian.little);
+    _logicalWidth = byteData.getUint16(offset, Endian.little);
     offset += 2;
-    logicalHeight = byteData.getUint16(offset, Endian.little);
+    _logicalHeight = byteData.getUint16(offset, Endian.little);
     offset += 2;
-    print('gif size = $logicalWidth, $logicalHeight');
     final int flags = byteData.getUint8(offset++);
     _hasGlobalColorTable = (flags & 0x80) != 0;
     _bitsPerPixel = ((flags >> 4) & 7) + 1;
     _colorTableSorted = (flags >> 3) & 0x1 != 0;
-    print('Has Global Color Table: $_hasGlobalColorTable , sorted = $_colorTableSorted');
-    print('bitsPerPixel = $_bitsPerPixel');
-    _colorTableSize = math.pow(2, (flags&7) + 1);
-    print('color table size = $_colorTableSize');
+    _globalColorTableSize = math.pow(2, (flags&7) + 1);
     _backgroundColorIndex = byteData.getUint8(offset++);
-    pixelAspectRatio = byteData.getUint8(offset++);
-    if (pixelAspectRatio != 0) {
-      final double aspectRatio = (pixelAspectRatio + 15) / 64;
-      print('aspectRatio = $aspectRatio');
+    _pixelAspectRatio = byteData.getUint8(offset++);
+    Int32List globalColorTable, activeColorTable;
+    // Read Global Color Table
+    if (_hasGlobalColorTable) {
+      final int numBytesInColorTable = _globalColorTableSize * 3;
+      activeColorTable = globalColorTable = Int32List(_globalColorTableSize);
+      for (int c = 0; c < _globalColorTableSize; c++) {
+        globalColorTable[c] = 0xFF000000 |
+        byteData.getUint8(offset++) << 16 |
+        byteData.getUint8(offset++) << 8 |
+        byteData.getUint8(offset++);
+      }
+    } else {
+      offset += _globalColorTableSize * 3;
     }
-    final int numBytesInColorTable = _colorTableSize * 3;
-    offset += numBytesInColorTable;
     int header = 0;
     while (offset < totalBytes) {
-       header = byteData.getUint8(offset++);
-
+      header = byteData.getUint8(offset++);
       if (header == _kExtensionHeader) {
         final int extensionType = byteData.getUint8(offset++);
         switch(extensionType) {
           case _plainTextLabelExtensionId:
-            print('plainText Extension');
+            // Not used. ignoring header and unused data.
+            final int headerSize = byteData.getUint8(offset++);
+            offset += headerSize;
+            int blockLength;
+            do {
+              blockLength = byteData.getUint8(offset++);
+              offset += blockLength;
+            } while (blockLength != 0);
             break;
           case _applicationExtensionId:
-            print('application extension');
-            int blockSize = byteData.getUint8(offset++);
-            String appId = _byteDataToAscii(byteData, offset, 8);
-            print('   AppId: $appId');
+            final int blockSize = byteData.getUint8(offset++);
+            final String appId = _byteDataToAscii(byteData, offset, 8);
             offset += 8;
-            String appAuth = _byteDataToAscii(byteData, offset, 3);
-            print('   AppAuth: $appAuth');
+            final String appAuth = _byteDataToAscii(byteData, offset, 3);
             offset += 3;
             // Read sub blocks. Blocks are terminated with 0 length.
             int blockLength = byteData.getUint8(offset++);
             int blockIndex = 0;
             while (blockLength != 0) {
-              _readAppExtension(appId, appAuth, blockIndex++, offset, blockLength);
+              _readAppExtension(appId, appAuth, blockIndex++,
+                  offset, blockLength);
               offset += blockLength;
               blockLength = byteData.getUint8(offset++);
             }
             break;
           case _commentExtensionId:
-            print('comment extension');
-            int blockLength = byteData.getUint8(offset++);
+            final int blockLength = byteData.getUint8(offset++);
             offset += blockLength;
-            print('${_byteDataToAscii(byteData, offset, blockLength)}');
-            int trailer = byteData.getUint8(offset++);
+            final int trailer = byteData.getUint8(offset++);
             if (trailer != 0) {
               throw const FormatException();
             }
@@ -208,10 +240,10 @@ class GifCodec {
             /// 1 bit user input
             /// 1 bit transparent color flag
             final int flags = byteData.getUint8(offset++);
-            final bool hasTransparency = (flags & 1) != 0;
-            final int delayTime = byteData.getUint16(offset, Endian.little);
+            hasTransparency = (flags & 1) != 0;
+            delayTime = byteData.getUint16(offset, Endian.little);
             offset += 2;
-            final int transparentColorIndex = byteData.getUint8(offset++);
+            transparentColorIndex = byteData.getUint8(offset++);
             if (byteSize > 4) {
               offset += byteSize - 4; // Skip unknown bytes
             }
@@ -219,15 +251,11 @@ class GifCodec {
             if (blockTerminator != 0) {
               throw const FormatException();
             }
-            print('graphiccontrol extension');
-            print('    hasTransparency = $hasTransparency, transparentColorIndex = $transparentColorIndex');
-            print('    delay = $delayTime');
             break;
           default:
             throw FormatException('Unexpected gif extension type $extensionType');
         }
       } else if (header == _kImageDescriptorHeader) {
-        print('Image descriptorHeader');
         final int imageLeft = byteData.getUint16(offset, Endian.little);
         offset += 2;
         final int imageTop = byteData.getUint16(offset, Endian.little);
@@ -236,7 +264,6 @@ class GifCodec {
         offset += 2;
         final int imageHeight = byteData.getUint16(offset, Endian.little);
         offset += 2;
-        print('  bounds = $imageLeft,$imageTop : $imageWidth,$imageHeight');
         final int flags = byteData.getUint8(offset++);
         final bool hasLocalColorTable = (flags & 0x80) != 0;
         final bool interlace = (flags & 0x40) != 0;
@@ -244,34 +271,27 @@ class GifCodec {
         final int localColorTableSize = math.pow(2, (flags&7) + 1);
         // Read local color table.
         if (hasLocalColorTable) {
-          offset += 3 * localColorTableSize;
+          activeColorTable = Int32List(localColorTableSize);
+          for (int c = 0; c < localColorTableSize; c++) {
+            globalColorTable[c] = 0xFF000000 |
+            byteData.getUint8(offset++) << 16 |
+            byteData.getUint8(offset++) << 8 |
+            byteData.getUint8(offset++);
+          }
         }
         // Read Image data.
-        print('read image data');
         final int lzwMinCodeSize = byteData.getUint8(offset++);
-        print('  lzwMinCodeSize = $lzwMinCodeSize');
         final int subBlocksTotalSize = _readSubBlocksLength(byteData, offset);
-        print('  subblocks total data size = $subBlocksTotalSize');
         final Uint8List compressedImageData = Uint8List(subBlocksTotalSize);
         offset = _readSubBlocks(byteData, offset, compressedImageData);
-//        // Reverse bits.
-//        List<int> _reverse = List<int>(256);
-//        for (int i = 0; i < 256; i++) {
-//          _reverse[i] = ((i << 7) & 0x80) |
-//              ((i << 5) & 0x40) |
-//              ((i << 3) & 0x20) |
-//              ((i << 1) & 0x10) |
-//              ((i >> 1) & 0x08) |
-//              ((i >> 3) & 0x04) |
-//              ((i >> 5) & 0x02) |
-//              ((i >> 7) & 0x01);
-//        }
-//        final int len = compressedImageData.lengthInBytes;
-//        for (int i = 0; i < len; i++) {
-//          compressedImageData[i] = _reverse[compressedImageData[i]];
-//        }i
         final Uint8List imageData = _decompressGif(compressedImageData,
             lzwMinCodeSize, imageWidth * imageHeight);
+        _frameCount++;
+        // Reset graphic control parameters.
+        activeColorTable = globalColorTable;
+        hasTransparency = false;
+        transparentColorIndex = null;
+        delayTime = null;
       } else if (header == _kEndOfGifStream) {
         assert(offset == totalBytes);
         break;
@@ -281,20 +301,163 @@ class GifCodec {
     }
   }
 
-  void _readAppExtension(String appId, String appAuth, int blockIndex, int offset, int length) {
+  void _readAppExtension(String appId, String appAuth, int blockIndex,
+      int offset, int length) {
     if (appId == 'NETSCAPE' && appAuth == '2.0') {
       if (blockIndex != 0) {
         throw const FormatException();
       }
-      int header = byteData.getUint8(offset++);
+      final int header = byteData.getUint8(offset++);
       if (header != 0x1) {
         throw const FormatException();
       }
-      repeatCount = byteData.getUint16(offset, Endian.little);
-      print('  Repeat count = $repeatCount');
+      _repeatCount = byteData.getUint16(offset, Endian.little);
     } else {
       print('Skipping unknown gif app extension $appId, $appAuth');
     }
+  }
+
+  static String _byteDataToAscii(ByteData byteData, int offset, int length) {
+    final StringBuffer sb = StringBuffer();
+    for (int i = 0; i < length; i++) {
+      final int byte = byteData.getUint8(offset + i);
+      sb.writeCharCode(byte);
+    }
+    return sb.toString();
+  }
+
+  static int _readSubBlocksLength(ByteData byteData, int offset) {
+    int lengthInBytes = 0;
+    int blockLength;
+    do {
+      blockLength = byteData.getUint8(offset++);
+      if (blockLength != 0) {
+        lengthInBytes += blockLength;
+        offset += blockLength;
+      }
+    } while (blockLength != 0);
+    return lengthInBytes;
+  }
+
+  static int _readSubBlocks(ByteData byteData, int offset, Uint8List target) {
+    int destIndex = 0;
+    int blockLength;
+    do {
+      blockLength = byteData.getUint8(offset++);
+      if (blockLength != 0) {
+        for (int i = 0; i < blockLength; i++) {
+          target[destIndex++] = byteData.getUint8(offset++);
+        }
+      }
+    } while (blockLength != 0);
+    return offset;
+  }
+
+  static List<int> sharedMask = <int>[0x0, 0x1, 0x3, 0x7, 0xF, 0x1F, 0x3F,
+    0x7F, 0xFF];
+
+  static Uint8List _decompressGif(Uint8List source, int minCodeSizeInBits,
+      int numPixels) {
+    final List<int> _lsbMask = sharedMask;
+    final Uint8List data = Uint8List(numPixels);
+    int writeIndex = 0;
+    final int minCodeSize = 1 << minCodeSizeInBits;
+    final int clearCode = minCodeSize;
+    final int stopCode = clearCode + 1;
+    final _Dictionary dict = _Dictionary(clearCode);
+    int totalBitsToRead = minCodeSizeInBits + 1;
+    int dictionaryLimit = 1 << totalBitsToRead;
+    int code;
+    int previousCode;
+    final int sourceLength = source.lengthInBytes;
+    int sourcePos = 0;
+    int sourceBitsAvailable = 8;
+    while (sourcePos < sourceLength) {
+      int sourceByte = source[sourcePos];
+      previousCode = code;
+      // Read numBits from source stream.
+      int bitsToRead = totalBitsToRead;
+      if (bitsToRead < sourceBitsAvailable) {
+        final int shiftR = 8 - sourceBitsAvailable;
+        final int lsbMask = _lsbMask[bitsToRead];
+        code = (sourceByte >> shiftR) & lsbMask;
+        sourceBitsAvailable -= bitsToRead;
+      } else if (bitsToRead == sourceBitsAvailable) {
+        final int lsbMask = _lsbMask[bitsToRead];
+        code = (sourceByte >> (8- sourceBitsAvailable)) & lsbMask;
+        sourceBitsAvailable = 8;
+        ++sourcePos;
+      } else {
+        // First read sourceBitsAvailable and then read remaining from remaining
+        // bytes in input stream until bitsToRead is 0.
+        final int lsbMask = _lsbMask[sourceBitsAvailable];
+        code = (sourceByte >> (8 - sourceBitsAvailable)) & lsbMask;
+        bitsToRead -= sourceBitsAvailable;
+        int bitsRead = sourceBitsAvailable;
+        //final int decodedBitCount = sourceBitsAvailable;
+        ++sourcePos;
+        sourceBitsAvailable = 8;
+        sourceByte = source[sourcePos];
+        if (bitsToRead < 8) {
+          final int shiftR = 8 - sourceBitsAvailable;
+          final int lsbMask = _lsbMask[bitsToRead];
+          code = code | (((sourceByte >> shiftR) & lsbMask) << bitsRead);
+          sourceBitsAvailable -= bitsToRead;
+        } else if (bitsToRead == 8) {
+          final int lsbMask = _lsbMask[8];
+          code = code | ((sourceByte & lsbMask) << bitsRead);
+          sourceBitsAvailable = 8;
+          ++sourcePos;
+        } else {
+          // Max number of bits is 12 for GIF LZW. Read 8 bits off of source and
+          // remaining bits from next.
+          final int lsbMask = _lsbMask[8];
+          code = code | ((sourceByte & lsbMask) << bitsRead);
+          sourceBitsAvailable = 8;
+          ++sourcePos;
+          bitsToRead -= 8;
+          bitsRead += 8;
+          sourceByte = source[sourcePos];
+          assert(bitsToRead < 8);
+          final int shiftR = 8 - sourceBitsAvailable;
+          code = code | (((sourceByte >> shiftR) & _lsbMask[bitsToRead]) << bitsRead);
+          sourceBitsAvailable -= bitsToRead;
+        }
+      }
+      if (code == clearCode) {
+        dict.clear();
+        totalBitsToRead = minCodeSizeInBits + 1;
+        dictionaryLimit = 1 << totalBitsToRead;
+        continue;
+      }
+      if (code == stopCode) {
+        break;
+      }
+      if (code < dict.length) {
+        if (previousCode != clearCode) {
+          final String prefix = dict[code][0];
+          dict.push(dict[previousCode] + prefix);
+        }
+      } else {
+        if (code != dict.length) {
+          throw const FormatException('Invalid compression code');
+        }
+        dict.push(dict[previousCode] + dict[previousCode][0]);
+      }
+      // Once we fill up the dictionary for totalBitsRead, increase number of bits.
+      // 12 bits is the max number of bits and has to be followed by a clearCode on the next
+      // read.
+      if (dict.length == dictionaryLimit && totalBitsToRead < 12) {
+        ++totalBitsToRead;
+        dictionaryLimit = 1 << totalBitsToRead;
+      }
+      final String dataToWrite = dict[code];
+      final int len = dataToWrite.length;
+      for (int i = 0; i < len; i++) {
+        data[writeIndex++] = dataToWrite.codeUnitAt(i);
+      }
+    }
+    return data;
   }
 }
 
@@ -305,160 +468,28 @@ class _Dictionary {
 
   final int codeSize;
   int _length;
-  Map<int, String> dict = <int, String>{};
+  List<String> dict;
 
   int get length => _length;
 
   String operator [](int code) => dict[code];
 
   void push(String value) {
-    dict[_length++] = value;
+    dict.add(value);
+    _length++;
   }
 
   void clear() {
+    dict = <String>[];
     for (int i = 0; i < codeSize; i++) {
-      dict[i] = String.fromCharCode(i);
+      dict.add(String.fromCharCode(i));
     }
     // Clear code.
-    dict[codeSize] = '';
+    dict.add('');
     // Stop code.
-    dict[codeSize + 1] = null;
-    _length = codeSize + 1;
+    dict.add(null);
+    _length = codeSize + 2;
   }
-}
-
-Uint8List _decompressGif(Uint8List source, int minCodeSizeInBits,
-    int numPixels) {
-  final List<int> _lsbMask = <int>[0x0, 0x1, 0x3, 0x7, 0xF, 0x1F, 0x3F, 0x7F, 0xFF];
-
-  final Uint8List data = Uint8List(numPixels);
-  int writeIndex = 0;
-  final int minCodeSize = 1 << minCodeSizeInBits;
-  print('minCodeSizeInBits = $minCodeSize');
-  final int clearCode = minCodeSize;
-  print('clearCode = $clearCode');
-  final int stopCode = clearCode + 1;
-  final _Dictionary dict = _Dictionary(clearCode + 1);
-  final int totalBitsToRead = minCodeSizeInBits + 1;
-  int code;
-  int previousCode;
-  final int sourceLength = source.lengthInBytes;
-  int sourcePos = 0;
-  int sourceBitsAvailable = 8;
-  while (sourcePos < sourceLength) {
-    int sourceByte = source[sourcePos];
-    previousCode = code;
-    // Read numBits from source stream.
-    int bitsToRead = totalBitsToRead;
-    if (bitsToRead < sourceBitsAvailable) {
-      final int shiftR = 8 - sourceBitsAvailable;
-      final int lsbMask = _lsbMask[bitsToRead];
-      code = (sourceByte >> shiftR) & lsbMask;
-      sourceBitsAvailable -= bitsToRead;
-    } else if (bitsToRead == sourceBitsAvailable) {
-      final int lsbMask = _lsbMask[bitsToRead];
-      code = (sourceByte >> (8- sourceBitsAvailable)) & lsbMask;
-      sourceBitsAvailable = 8;
-      ++sourcePos;
-    } else {
-      // First read sourceBitsAvailable and then read remaining from remaining
-      // bytes in input stream until bitsToRead is 0.
-      final int lsbMask = _lsbMask[sourceBitsAvailable];
-      code = (sourceByte >> (8 - sourceBitsAvailable)) & lsbMask;
-      bitsToRead -= sourceBitsAvailable;
-      int bitsRead = sourceBitsAvailable;
-      //final int decodedBitCount = sourceBitsAvailable;
-      ++sourcePos;
-      sourceBitsAvailable = 8;
-      sourceByte = source[sourcePos];
-      if (bitsToRead < 8) {
-        final int shiftR = 8 - sourceBitsAvailable;
-        final int lsbMask = _lsbMask[bitsToRead];
-        code = code | (((sourceByte >> shiftR) & lsbMask) << bitsRead);
-        sourceBitsAvailable -= bitsToRead;
-      } else if (bitsToRead == 8) {
-        final int lsbMask = _lsbMask[8];
-        code = code | ((sourceByte & lsbMask) << bitsRead);
-        sourceBitsAvailable = 8;
-        ++sourcePos;
-      } else {
-        // Max number of bits is 12 for GIF LZW. Read 8 bits off of source and
-        // remaining bits from next.
-        final int lsbMask = _lsbMask[8];
-        code = code | ((sourceByte & lsbMask) << bitsRead);
-        sourceBitsAvailable = 8;
-        ++sourcePos;
-        bitsToRead -= 8;
-        bitsRead += 8;
-        sourceByte = source[sourcePos];
-        assert(bitsToRead < 8);
-        final int shiftR = 8 - sourceBitsAvailable;
-        code = code | (((sourceByte >> shiftR) & _lsbMask[bitsToRead]) << bitsRead);
-        sourceBitsAvailable -= bitsToRead;
-      }
-    }
-    print('code read = $code');
-    if (code == clearCode) {
-      dict.clear();
-      continue;
-    }
-    if (code == stopCode) {
-      print('**** Stop code reached ***');
-      break;
-    }
-    if (code < dict.length) {
-      if (previousCode != clearCode && previousCode != null) {
-        dict.push(dict[previousCode] + dict[code][0]);
-      }
-    } else {
-      if (code != dict.length) {
-        throw const FormatException('Invalid compression code');
-      }
-      dict.push(dict[previousCode] + dict[previousCode][0]);
-    }
-    final String dataToWrite = dict[code];
-    final int len = dataToWrite.length;
-    for (int i = 0; i < len; i++) {
-      data[writeIndex++] = dataToWrite.codeUnitAt(i);
-    }
-  }
-  return data;
-}
-
-String _byteDataToAscii(ByteData byteData, int offset, int length) {
-  final StringBuffer sb = StringBuffer();
-  for (int i = 0; i < length; i++) {
-    final int byte = byteData.getUint8(offset + i);
-    sb.writeCharCode(byte);
-  }
-  return sb.toString();
-}
-
-int _readSubBlocksLength(ByteData byteData, int offset) {
-  int lengthInBytes = 0;
-  int blockLength;
-  do {
-    blockLength = byteData.getUint8(offset++);
-    if (blockLength != 0) {
-      lengthInBytes += blockLength;
-      offset += blockLength;
-    }
-  } while (blockLength != 0);
-  return lengthInBytes;
-}
-
-int _readSubBlocks(ByteData byteData, int offset, Uint8List target) {
-  int destIndex = 0;
-  int blockLength;
-  do {
-    blockLength = byteData.getUint8(offset++);
-    if (blockLength != 0) {
-      for (int i = 0; i < blockLength; i++) {
-        target[destIndex++] = byteData.getUint8(offset++);
-      }
-    }
-  } while (blockLength != 0);
-  return offset;
 }
 
 class MyApp extends StatefulWidget {
@@ -507,17 +538,17 @@ class MyPainter extends CustomPainter {
 //    path.addRect(paintRect);
 //    canvas.drawPath(path, paint);
 
-      canvas.drawCircle(const Offset(220.0, 220.0), 150.0, Paint()
-          ..style = PaintingStyle.fill
-          ..color = const Color.fromARGB(128, 255, 0, 0));
+    canvas.drawCircle(const Offset(220.0, 220.0), 150.0, Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color.fromARGB(128, 255, 0, 0));
 
-      canvas.drawCircle(const Offset(380.0, 220.0), 150.0, Paint()
-        ..style = PaintingStyle.fill
-        ..color = const Color.fromARGB(128, 0, 255, 0));
+    canvas.drawCircle(const Offset(380.0, 220.0), 150.0, Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color.fromARGB(128, 0, 255, 0));
 
-      canvas.drawCircle(const Offset(300.0, 420.0), 150.0, Paint()
-        ..style = PaintingStyle.fill
-        ..color = const Color.fromARGB(128, 0, 0, 255));
+    canvas.drawCircle(const Offset(300.0, 420.0), 150.0, Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color.fromARGB(128, 0, 0, 255));
 
 //    final Int32List colors = Int32List.fromList(<int>[
 //      0xFFFF0000, 0xFF00FF00, 0xFF0000FF,
