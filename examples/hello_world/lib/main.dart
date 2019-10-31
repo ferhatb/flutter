@@ -178,17 +178,13 @@ class GifCodec {
     _globalColorTableSize = math.pow(2, (flags&7) + 1);
     _backgroundColorIndex = byteData.getUint8(offset++);
     _pixelAspectRatio = byteData.getUint8(offset++);
-    Int32List globalColorTable, activeColorTable;
+    Uint32List globalColorTable, activeColorTable;
     // Read Global Color Table
     if (_hasGlobalColorTable) {
       final int numBytesInColorTable = _globalColorTableSize * 3;
-      activeColorTable = globalColorTable = Int32List(_globalColorTableSize);
-      for (int c = 0; c < _globalColorTableSize; c++) {
-        globalColorTable[c] = 0xFF000000 |
-        byteData.getUint8(offset++) << 16 |
-        byteData.getUint8(offset++) << 8 |
-        byteData.getUint8(offset++);
-      }
+      activeColorTable = globalColorTable =
+          _readColorTable(offset, _globalColorTableSize);
+      offset += 3 * _globalColorTableSize;
     } else {
       offset += _globalColorTableSize * 3;
     }
@@ -199,38 +195,13 @@ class GifCodec {
         final int extensionType = byteData.getUint8(offset++);
         switch(extensionType) {
           case _plainTextLabelExtensionId:
-            // Not used. ignoring header and unused data.
-            final int headerSize = byteData.getUint8(offset++);
-            offset += headerSize;
-            int blockLength;
-            do {
-              blockLength = byteData.getUint8(offset++);
-              offset += blockLength;
-            } while (blockLength != 0);
+            offset = _readPlainTextLabelExtension(offset);
             break;
           case _applicationExtensionId:
-            final int blockSize = byteData.getUint8(offset++);
-            final String appId = _byteDataToAscii(byteData, offset, 8);
-            offset += 8;
-            final String appAuth = _byteDataToAscii(byteData, offset, 3);
-            offset += 3;
-            // Read sub blocks. Blocks are terminated with 0 length.
-            int blockLength = byteData.getUint8(offset++);
-            int blockIndex = 0;
-            while (blockLength != 0) {
-              _readAppExtension(appId, appAuth, blockIndex++,
-                  offset, blockLength);
-              offset += blockLength;
-              blockLength = byteData.getUint8(offset++);
-            }
+            offset = _readApplicationExtensions(offset);
             break;
           case _commentExtensionId:
-            final int blockLength = byteData.getUint8(offset++);
-            offset += blockLength;
-            final int trailer = byteData.getUint8(offset++);
-            if (trailer != 0) {
-              throw const FormatException();
-            }
+            offset = _readCommentExtension(offset);
             break;
           case _graphicControlExtensionId:
             final int byteSize = byteData.getUint8(offset++);
@@ -271,21 +242,16 @@ class GifCodec {
         final int localColorTableSize = math.pow(2, (flags&7) + 1);
         // Read local color table.
         if (hasLocalColorTable) {
-          activeColorTable = Int32List(localColorTableSize);
-          for (int c = 0; c < localColorTableSize; c++) {
-            globalColorTable[c] = 0xFF000000 |
-            byteData.getUint8(offset++) << 16 |
-            byteData.getUint8(offset++) << 8 |
-            byteData.getUint8(offset++);
-          }
+          activeColorTable = _readColorTable(offset, localColorTableSize);
+          offset += 3 * localColorTableSize;
         }
         // Read Image data.
         final int lzwMinCodeSize = byteData.getUint8(offset++);
         final int subBlocksTotalSize = _readSubBlocksLength(byteData, offset);
         final Uint8List compressedImageData = Uint8List(subBlocksTotalSize);
         offset = _readSubBlocks(byteData, offset, compressedImageData);
-        final Uint8List imageData = _decompressGif(compressedImageData,
-            lzwMinCodeSize, imageWidth * imageHeight);
+        final Uint32List imageData = _decompressGif(compressedImageData,
+            lzwMinCodeSize, imageWidth * imageHeight, activeColorTable);
         _frameCount++;
         // Reset graphic control parameters.
         activeColorTable = globalColorTable;
@@ -299,6 +265,57 @@ class GifCodec {
         throw FormatException('Unexpect header code $header');
       }
     }
+  }
+
+  int _readPlainTextLabelExtension(int offset) {
+    // Not used. ignoring header and unused data.
+    final int headerSize = byteData.getUint8(offset++);
+    offset += headerSize;
+    int blockLength;
+    do {
+      blockLength = byteData.getUint8(offset++);
+      offset += blockLength;
+    } while (blockLength != 0);
+    return offset;
+  }
+
+  int _readApplicationExtensions(int offset) {
+    final int blockSize = byteData.getUint8(offset++);
+    final String appId = _byteDataToAscii(byteData, offset, 8);
+    offset += 8;
+    final String appAuth = _byteDataToAscii(byteData, offset, 3);
+    offset += 3;
+    // Read sub blocks. Blocks are terminated with 0 length.
+    int blockLength = byteData.getUint8(offset++);
+    int blockIndex = 0;
+    while (blockLength != 0) {
+      _readAppExtension(appId, appAuth, blockIndex++,
+          offset, blockLength);
+      offset += blockLength;
+      blockLength = byteData.getUint8(offset++);
+    }
+    return offset;
+  }
+
+  int _readCommentExtension(int offset) {
+    final int blockLength = byteData.getUint8(offset++);
+    offset += blockLength;
+    final int trailer = byteData.getUint8(offset++);
+    if (trailer != 0) {
+      throw const FormatException();
+    }
+    return offset;
+  }
+
+  Uint32List _readColorTable(int offset, int colorCount) {
+    final Uint32List colorTable = Uint32List(colorCount);
+    for (int c = 0; c < colorCount; c++) {
+      colorTable[c] = 0xFF000000 |
+      byteData.getUint8(offset++) << 16 |
+      byteData.getUint8(offset++) << 8 |
+      byteData.getUint8(offset++);
+    }
+    return colorTable;
   }
 
   void _readAppExtension(String appId, String appAuth, int blockIndex,
@@ -356,10 +373,10 @@ class GifCodec {
   static List<int> sharedMask = <int>[0x0, 0x1, 0x3, 0x7, 0xF, 0x1F, 0x3F,
     0x7F, 0xFF];
 
-  static Uint8List _decompressGif(Uint8List source, int minCodeSizeInBits,
-      int numPixels) {
+  static Uint32List _decompressGif(Uint8List source, int minCodeSizeInBits,
+      int numPixels, Uint32List colorTable) {
     final List<int> _lsbMask = sharedMask;
-    final Uint8List data = Uint8List(numPixels);
+    final Uint32List data = Uint32List(numPixels);
     int writeIndex = 0;
     final int minCodeSize = 1 << minCodeSizeInBits;
     final int clearCode = minCodeSize;
@@ -454,7 +471,7 @@ class GifCodec {
       final String dataToWrite = dict[code];
       final int len = dataToWrite.length;
       for (int i = 0; i < len; i++) {
-        data[writeIndex++] = dataToWrite.codeUnitAt(i);
+        data[writeIndex++] = colorTable[dataToWrite.codeUnitAt(i)];
       }
     }
     return data;
