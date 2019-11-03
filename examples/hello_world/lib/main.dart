@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:async';
+import 'dart:html' as html;
 import 'dart:math' as math;
-
-import 'dart:ui' as ui;
 import 'dart:typed_data';
-
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
@@ -15,9 +15,27 @@ void main() {
   runApp(MyApp());
 }
 
+
+int frameIndex = 0;
 void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
   imageInfo.image.toByteData().then((ByteData byteData) {
     final GifCodec gif = GifCodec(byteData);
+    gif.decode();
+    final html.CanvasElement canvas = html.CanvasElement();
+    canvas.width = 1000;
+    canvas.height = 1000;
+    html.document.body.append(canvas);
+    final html.CanvasRenderingContext2D ctx = canvas.context2D;
+
+    Function drawNextFrame;
+    drawNextFrame = () {
+      final html.ImageData imageData = gif.frames[frameIndex++].readImageData();
+      ctx.putImageData(imageData, 0, 0);
+      if (frameIndex == gif.frames.length) frameIndex = 0;
+      Timer(Duration(milliseconds: 30), drawNextFrame);
+    };
+
+    Timer(Duration(milliseconds: 100), drawNextFrame);
   });
 }
 
@@ -111,10 +129,9 @@ void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
 /// with. As larger codes get added to table, the number of bits used for
 /// encoding grows. Once we have exhausted 12 bits, a ClearCode is emitted
 /// to clear the table to initial state (N+1) and start over.
+///
 class GifCodec {
-  GifCodec(this.byteData) {
-    decode();
-  }
+  GifCodec(this.byteData);
 
   static const String _gifExtension = '.gif';
   static const int _kEndOfGifStream = 0x3B;
@@ -140,9 +157,11 @@ class GifCodec {
   int _globalColorTableSize;
   int _backgroundColorIndex;
   int _repeatCount = -1;
-  int _frameCount = 0;
 
   ByteData byteData;
+  List<_GifFrame> _frames;
+
+  List<_GifFrame> get frames => _frames;
 
   int get width => _logicalWidth;
 
@@ -150,7 +169,7 @@ class GifCodec {
 
   int get repeatCount => _repeatCount;
 
-  int get frameCount => _frameCount;
+  int get frameCount => _frames == null ? 0 : _frames.length;
 
   bool get colorTableSorted => _colorTableSorted;
 
@@ -160,11 +179,11 @@ class GifCodec {
   int get bitsPerPixel => _bitsPerPixel;
 
   void decode() {
+    _frames = <_GifFrame>[];
     bool hasTransparency = false;
     int transparentColorIndex;
     int delayTime;
 
-    _frameCount = 0;
     final int totalBytes = byteData.lengthInBytes;
     int offset = kHeaderSize;
     _logicalWidth = byteData.getUint16(offset, Endian.little);
@@ -250,9 +269,10 @@ class GifCodec {
         final int subBlocksTotalSize = _readSubBlocksLength(byteData, offset);
         final Uint8List compressedImageData = Uint8List(subBlocksTotalSize);
         offset = _readSubBlocks(byteData, offset, compressedImageData);
-        final Uint32List imageData = _decompressGif(compressedImageData,
-            lzwMinCodeSize, imageWidth * imageHeight, activeColorTable);
-        _frameCount++;
+        final Uint8ClampedList imageData = _decompressGif(compressedImageData,
+            lzwMinCodeSize, imageWidth * imageHeight, activeColorTable,
+            hasTransparency ? transparentColorIndex : -1);
+        _frames.add(_GifFrame(imageWidth, imageHeight, imageData));
         // Reset graphic control parameters.
         activeColorTable = globalColorTable;
         hasTransparency = false;
@@ -311,9 +331,9 @@ class GifCodec {
     final Uint32List colorTable = Uint32List(colorCount);
     for (int c = 0; c < colorCount; c++) {
       colorTable[c] = 0xFF000000 |
-      byteData.getUint8(offset++) << 16 |
+      byteData.getUint8(offset++) |
       byteData.getUint8(offset++) << 8 |
-      byteData.getUint8(offset++);
+      byteData.getUint8(offset++) << 16;
     }
     return colorTable;
   }
@@ -373,15 +393,16 @@ class GifCodec {
   static List<int> sharedMask = <int>[0x0, 0x1, 0x3, 0x7, 0xF, 0x1F, 0x3F,
     0x7F, 0xFF];
 
-  static Uint32List _decompressGif(Uint8List source, int minCodeSizeInBits,
-      int numPixels, Uint32List colorTable) {
+  static Uint8ClampedList _decompressGif(Uint8List source, int minCodeSizeInBits,
+      int numPixels, Uint32List colorTable, int transparentColorIndex) {
     final List<int> _lsbMask = sharedMask;
-    final Uint32List data = Uint32List(numPixels);
+    const int bytesPerPixel = 4;
+    final Uint8ClampedList data = Uint8ClampedList(numPixels * bytesPerPixel);
     int writeIndex = 0;
     final int minCodeSize = 1 << minCodeSizeInBits;
     final int clearCode = minCodeSize;
     final int stopCode = clearCode + 1;
-    final _Dictionary dict = _Dictionary(clearCode);
+    //final _Dictionary dict = _Dictionary(clearCode);
     int totalBitsToRead = minCodeSizeInBits + 1;
     int dictionaryLimit = 1 << totalBitsToRead;
     int code;
@@ -389,6 +410,7 @@ class GifCodec {
     final int sourceLength = source.lengthInBytes;
     int sourcePos = 0;
     int sourceBitsAvailable = 8;
+    final List<String> dictionary = <String>[];
     while (sourcePos < sourceLength) {
       int sourceByte = source[sourcePos];
       previousCode = code;
@@ -442,7 +464,7 @@ class GifCodec {
         }
       }
       if (code == clearCode) {
-        dict.clear();
+        _clearDictionary(dictionary, minCodeSize);
         totalBitsToRead = minCodeSizeInBits + 1;
         dictionaryLimit = 1 << totalBitsToRead;
         continue;
@@ -450,54 +472,47 @@ class GifCodec {
       if (code == stopCode) {
         break;
       }
-      if (code < dict.length) {
+      if (code < dictionary.length) {
         if (previousCode != clearCode) {
-          final String prefix = dict[code][0];
-          dict.push(dict[previousCode] + prefix);
+          final String prefix = dictionary[code][0];
+          dictionary.add(dictionary[previousCode] + prefix);
         }
       } else {
-        if (code != dict.length) {
+        if (code != dictionary.length) {
           throw const FormatException('Invalid compression code');
         }
-        dict.push(dict[previousCode] + dict[previousCode][0]);
+        dictionary.add(dictionary[previousCode] + dictionary[previousCode][0]);
       }
       // Once we fill up the dictionary for totalBitsRead, increase number of bits.
       // 12 bits is the max number of bits and has to be followed by a clearCode on the next
       // read.
-      if (dict.length == dictionaryLimit && totalBitsToRead < 12) {
+      if (dictionary.length == dictionaryLimit && totalBitsToRead < 12) {
         ++totalBitsToRead;
         dictionaryLimit = 1 << totalBitsToRead;
       }
-      final String dataToWrite = dict[code];
+      final String dataToWrite = dictionary[code];
       final int len = dataToWrite.length;
       for (int i = 0; i < len; i++) {
-        data[writeIndex++] = colorTable[dataToWrite.codeUnitAt(i)];
+        final int colorIndex = dataToWrite.codeUnitAt(i);
+        if (transparentColorIndex != colorIndex) {
+          final int color = colorTable[colorIndex];
+          data[writeIndex++] = color & 0xFF;
+          data[writeIndex++] = (color >> 8) & 0xFF;
+          data[writeIndex++] = (color >> 16) & 0xFF;
+          data[writeIndex++] = (color >> 24) & 0xFF;
+        }
+        else {
+          data[writeIndex++] = 0;
+          data[writeIndex++] = 0;
+          data[writeIndex++] = 0;
+          data[writeIndex++] = 0;
+        }
       }
     }
     return data;
   }
-}
-
-class _Dictionary {
-  _Dictionary(this.codeSize) {
-    clear();
-  }
-
-  final int codeSize;
-  int _length;
-  List<String> dict;
-
-  int get length => _length;
-
-  String operator [](int code) => dict[code];
-
-  void push(String value) {
-    dict.add(value);
-    _length++;
-  }
-
-  void clear() {
-    dict = <String>[];
+  static void _clearDictionary(List<String> dict, int codeSize) {
+    dict.clear();
     for (int i = 0; i < codeSize; i++) {
       dict.add(String.fromCharCode(i));
     }
@@ -505,7 +520,18 @@ class _Dictionary {
     dict.add('');
     // Stop code.
     dict.add(null);
-    _length = codeSize + 2;
+  }
+}
+
+class _GifFrame {
+  _GifFrame(this.width, this.height, this.data);
+  final Uint8ClampedList data;
+  final int width;
+  final int height;
+  html.ImageData _imageData;
+
+  html.ImageData readImageData() {
+    return _imageData ??= html.ImageData(data, width, height);
   }
 }
 
