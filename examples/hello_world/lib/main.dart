@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:js_util' as js_util;
 import 'dart:async';
 import 'dart:html' as html;
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -11,33 +13,175 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 
+/// The HTML engine used by the current browser.
+enum BrowserEngine {
+  /// The engine that powers Chrome, Samsung Internet Browser, UC Browser,
+  /// Microsoft Edge, Opera, and others.
+  blink,
+
+  /// The engine that powers Safari.
+  webkit,
+
+  /// The engine that powers Firefox.
+  firefox,
+
+  /// We were unable to detect the current browser engine.
+  unknown,
+}
+
+/// Lazily initialized current browser engine.
+BrowserEngine _browserEngine;
+
+/// Returns the [BrowserEngine] used by the current browser.
+///
+/// This is used to implement browser-specific behavior.
+BrowserEngine get browserEngine => _browserEngine ??= _detectBrowserEngine();
+
+BrowserEngine _detectBrowserEngine() {
+  final String vendor = html.window.navigator.vendor;
+  if (vendor == 'Google Inc.') {
+    return BrowserEngine.blink;
+  } else if (vendor == 'Apple Computer, Inc.') {
+    return BrowserEngine.webkit;
+  } else if (vendor == '') {
+    // An empty string means firefox:
+    // https://developer.mozilla.org/en-US/docs/Web/API/Navigator/vendor
+    return BrowserEngine.firefox;
+  }
+
+  // Assume blink otherwise, but issue a warning.
+  print('WARNING: failed to detect current browser engine.');
+
+  return BrowserEngine.unknown;
+}
+
 void main() {
   runApp(MyApp());
 }
 
+// Feature detection for createImageBitmap.
+bool _browserFeatureCreateImageBitmap;
+bool get _browserSupportsCreateImageBitmap =>
+    _browserFeatureCreateImageBitmap ??
+        js_util.hasProperty(html.window, 'createImageBitmap');
 
 int frameIndex = 0;
+bool loaded = false;
 void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
-  imageInfo.image.toByteData().then((ByteData byteData) {
-    final GifCodec gif = GifCodec(byteData);
-    gif.decode();
-    final html.CanvasElement canvas = html.CanvasElement();
-    canvas.width = 1000;
-    canvas.height = 1000;
-    html.document.body.append(canvas);
-    final html.CanvasRenderingContext2D ctx = canvas.context2D;
+  if (loaded) return;
+  loaded = true;
+  String src =
+      'https://images.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png';
+      //'assets/lib/animated_images/animated_flutter_lgtm.gif';
 
-    Function drawNextFrame;
-    drawNextFrame = () {
-      final html.ImageData imageData = gif.frames[frameIndex++].readImageData();
-      ctx.putImageData(imageData, 0, 0);
-      if (frameIndex == gif.frames.length) frameIndex = 0;
-      Timer(Duration(milliseconds: 30), drawNextFrame);
-    };
-
-    Timer(Duration(milliseconds: 100), drawNextFrame);
+      html.HttpRequest.request(src,
+      responseType: 'arraybuffer').then((html.HttpRequest req) {
+    final ByteBuffer buffer = req.response;
+    final ByteData byteData = ByteData.view(buffer);
+    _imageLoaded2(byteData);
+  }, onError: (dynamic error) {
+    // CORS error.
+    final html.ImageElement imageElement = html.ImageElement();
+    imageElement.src = src;
+    imageElement.decode().then((dynamic _) {
+      
+    });
   });
 }
+
+void _imageLoaded2(ByteData byteData) {
+  final GifCodec gif = GifCodec(byteData);
+  gif.decode();
+  final html.CanvasElement canvas = html.CanvasElement();
+  canvas.width = 1000;
+  canvas.height = 1000;
+  html.document.body.append(canvas);
+  final html.CanvasRenderingContext2D ctx = canvas.context2D;
+
+  Function drawNextFrame;
+
+  final _GifFrame frame = gif.frames[frameIndex++];
+  if (frameIndex == gif.frameCount) {
+    frameIndex = 0;
+  }
+
+  final html.ImageData imageData = frame.readImageData();
+
+  if (_browserSupportsCreateImageBitmap) {
+    final dynamic imageBitmapPromise = js_util.callMethod(
+        html.window, 'createImageBitmap',
+        <dynamic>[imageData]);
+    final Function imageBitmapLoaded = (dynamic value) {
+      js_util.callMethod(ctx, 'drawImage', <dynamic>[
+        value,
+        0,
+        0,
+        frame.width,
+        frame.height,
+        200,
+        100,
+        2 * frame.width,
+        2 * frame.height
+      ]);
+    };
+    html.promiseToFuture<dynamic>(imageBitmapPromise).then((
+        dynamic imageBitmap) {
+      imageBitmapLoaded(imageBitmap);
+    });
+  } else {
+    if (browserEngine == BrowserEngine.webkit) {
+      html.CanvasElement canvas = html.CanvasElement(
+          width: frame.width, height: frame.height);
+      final dynamic offscreenCtx = js_util.callMethod(
+          canvas, 'getContext', <dynamic>['2d']);
+      assert(offscreenCtx != null);
+      js_util.callMethod(
+          offscreenCtx, 'putImageData', <dynamic>[imageData, 0, 0]);
+      js_util.callMethod(ctx, 'drawImage', <dynamic>[
+        canvas,
+        0,
+        0,
+        frame.width,
+        frame.height,
+        0,
+        0,
+        2 * frame.width,
+        2 * frame.height
+      ]);
+    } else {
+      // Drawing ImageData scaled/transformed to target context.
+      final html.OffscreenCanvas canvas = html.OffscreenCanvas(
+          frame.width, frame.height);
+      final dynamic offscreenCtx = js_util.callMethod(
+          canvas, 'getContext', <dynamic>['2d']);
+      assert(offscreenCtx != null);
+      js_util.callMethod(
+          offscreenCtx, 'putImageData', <dynamic>[imageData, 0, 0]);
+      js_util.callMethod(ctx, 'drawImage', <dynamic>[
+        canvas,
+        0,
+        0,
+        frame.width,
+        frame.height,
+        0,
+        0,
+        2 * frame.width,
+        2 * frame.height
+      ]);
+    }
+  }
+//        // Drawing ImageData scaled/transformed to target context.
+//        html.OffscreenCanvas canvas = html.OffscreenCanvas(frame.width, frame.height);
+//        dynamic offscreenCtx = js_util.callMethod(canvas, 'getContext', <dynamic>['2d']);
+//        assert(offscreenCtx != null);
+//        js_util.callMethod(
+//            offscreenCtx, 'putImageData', <dynamic>[imageData, 0, 0]);
+//        js_util.callMethod(ctx, 'drawImage', <dynamic>[canvas, 0, 0, frame.width, frame.height, 0, 0, 2 * frame.width, 2 * frame.height]);
+//
+//    if (frameIndex == gif.frames.length) frameIndex = 0;
+//    Timer(Duration(milliseconds: 30), drawNextFrame);
+}
+
 
 /// Decodes GIF into a set of frames.
 ///
@@ -183,6 +327,15 @@ class GifCodec {
     bool hasTransparency = false;
     int transparentColorIndex;
     int delayTime;
+    // The disposal method specifies the way in which the graphic is to be
+    // used after rendering.
+    //   0 - No disposal specified
+    //   1 - Do not dispose. The graphic is left in place.
+    //   2 - Restore to background color (the area should be cleared to
+    //       background color.
+    //   3 - Restore to previous. The decoder is required to
+    //       to restore the area after the last disposal method.
+    int disposalMethod;
 
     final int totalBytes = byteData.lengthInBytes;
     int offset = kHeaderSize;
@@ -231,6 +384,7 @@ class GifCodec {
             /// 1 bit transparent color flag
             final int flags = byteData.getUint8(offset++);
             hasTransparency = (flags & 1) != 0;
+            disposalMethod = (flags >> 2) & 7;
             delayTime = byteData.getUint16(offset, Endian.little);
             offset += 2;
             transparentColorIndex = byteData.getUint8(offset++);
@@ -271,8 +425,10 @@ class GifCodec {
         offset = _readSubBlocks(byteData, offset, compressedImageData);
         final Uint8ClampedList imageData = _decompressGif(compressedImageData,
             lzwMinCodeSize, imageWidth * imageHeight, activeColorTable,
-            hasTransparency ? transparentColorIndex : -1);
-        _frames.add(_GifFrame(imageWidth, imageHeight, imageData));
+            hasTransparency ? transparentColorIndex : -1,
+            _frames.isEmpty ? null : _frames.last);
+        _frames.add(_GifFrame(imageWidth, imageHeight, imageData,
+            disposalMethod));
         // Reset graphic control parameters.
         activeColorTable = globalColorTable;
         hasTransparency = false;
@@ -394,7 +550,8 @@ class GifCodec {
     0x7F, 0xFF];
 
   static Uint8ClampedList _decompressGif(Uint8List source, int minCodeSizeInBits,
-      int numPixels, Uint32List colorTable, int transparentColorIndex) {
+      int numPixels, Uint32List colorTable, int transparentColorIndex,
+      _GifFrame _priorFrame) {
     final List<int> _lsbMask = sharedMask;
     const int bytesPerPixel = 4;
     final Uint8ClampedList data = Uint8ClampedList(numPixels * bytesPerPixel);
@@ -502,10 +659,21 @@ class GifCodec {
           data[writeIndex++] = (color >> 24) & 0xFF;
         }
         else {
-          data[writeIndex++] = 0;
-          data[writeIndex++] = 0;
-          data[writeIndex++] = 0;
-          data[writeIndex++] = 0;
+          if (_priorFrame != null && _priorFrame.disposalMethod == 1) {
+            data[writeIndex] = _priorFrame.data[writeIndex];
+            writeIndex++;
+            data[writeIndex] = _priorFrame.data[writeIndex];
+            writeIndex++;
+            data[writeIndex] = _priorFrame.data[writeIndex];
+            writeIndex++;
+            data[writeIndex] = _priorFrame.data[writeIndex];
+            writeIndex++;
+          } else {
+            data[writeIndex++] = 0;
+            data[writeIndex++] = 0;
+            data[writeIndex++] = 0;
+            data[writeIndex++] = 0;
+          }
         }
       }
     }
@@ -524,10 +692,11 @@ class GifCodec {
 }
 
 class _GifFrame {
-  _GifFrame(this.width, this.height, this.data);
+  _GifFrame(this.width, this.height, this.data, this.disposalMethod);
   final Uint8ClampedList data;
   final int width;
   final int height;
+  final int disposalMethod;
   html.ImageData _imageData;
 
   html.ImageData readImageData() {
@@ -553,7 +722,12 @@ class MyAppState extends State<MyApp> {
       home: Column(children: <Widget>[
         Center(
             child: Column(children: <Widget>[
-              Image.asset('lib/animated_images/animated_flutter_lgtm.gif'),
+//              Image.asset('lib/animated_images/giphy1.gif'),
+//              Text('AAA'),
+//              Image.asset('lib/animated_images/animated_flutter_lgtm.gif'),
+//              Text('BBB'),
+//              Image.asset('lib/animated_images/giphy2.gif'),
+//              Text('CCC'),
             ]
             )
         ),
