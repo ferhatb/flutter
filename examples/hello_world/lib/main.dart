@@ -11,7 +11,7 @@ void main() {
     shadows: [
       Shadow(
         blurRadius: 0,
-        color: Colors.black,
+        color: Colors.red,
         offset: Offset(10, 0),
       ),
     ],
