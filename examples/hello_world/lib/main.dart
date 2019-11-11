@@ -13,6 +13,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/painting.dart';
 
+import 'rally/app.dart';
+void main() {
+  runApp(RallyApp());
+}
+
+
 /// The HTML engine used by the current browser.
 enum BrowserEngine {
   /// The engine that powers Chrome, Samsung Internet Browser, UC Browser,
@@ -55,10 +61,6 @@ BrowserEngine _detectBrowserEngine() {
   return BrowserEngine.unknown;
 }
 
-void main() {
-  runApp(MyApp());
-}
-
 // Feature detection for createImageBitmap.
 bool _browserFeatureCreateImageBitmap;
 bool get _browserSupportsCreateImageBitmap =>
@@ -84,7 +86,7 @@ void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
     final html.ImageElement imageElement = html.ImageElement();
     imageElement.src = src;
     imageElement.decode().then((dynamic _) {
-      
+
     });
   });
 }

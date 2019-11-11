@@ -178,14 +178,15 @@ class RenderSliverPadding extends RenderSliver with RenderObjectWithChildMixin<R
       );
       return;
     }
+    final SliverConstraints sliverConstraints = constraints;
     child.layout(
-      constraints.copyWith(
-        scrollOffset: math.max(0.0, constraints.scrollOffset - beforePadding),
-        cacheOrigin: math.min(0.0, constraints.cacheOrigin + beforePadding),
+      sliverConstraints.copyWith(
+        scrollOffset: math.max(0.0, sliverConstraints.scrollOffset - beforePadding),
+        cacheOrigin: math.min(0.0, sliverConstraints.cacheOrigin + beforePadding),
         overlap: 0.0,
-        remainingPaintExtent: constraints.remainingPaintExtent - calculatePaintOffset(constraints, from: 0.0, to: beforePadding),
-        remainingCacheExtent: constraints.remainingCacheExtent - calculateCacheOffset(constraints, from: 0.0, to: beforePadding),
-        crossAxisExtent: math.max(0.0, constraints.crossAxisExtent - crossAxisPadding),
+        remainingPaintExtent: sliverConstraints.remainingPaintExtent - calculatePaintOffset(sliverConstraints, from: 0.0, to: beforePadding),
+        remainingCacheExtent: sliverConstraints.remainingCacheExtent - calculateCacheOffset(sliverConstraints, from: 0.0, to: beforePadding),
+        crossAxisExtent: math.max(0.0, sliverConstraints.crossAxisExtent - crossAxisPadding),
       ),
       parentUsesSize: true,
     );
@@ -197,23 +198,23 @@ class RenderSliverPadding extends RenderSliver with RenderObjectWithChildMixin<R
       return;
     }
     final double beforePaddingPaintExtent = calculatePaintOffset(
-      constraints,
+      sliverConstraints,
       from: 0.0,
       to: beforePadding,
     );
     final double afterPaddingPaintExtent = calculatePaintOffset(
-      constraints,
+      sliverConstraints,
       from: beforePadding + childLayoutGeometry.scrollExtent,
       to: mainAxisPadding + childLayoutGeometry.scrollExtent,
     );
     final double mainAxisPaddingPaintExtent = beforePaddingPaintExtent + afterPaddingPaintExtent;
     final double beforePaddingCacheExtent = calculateCacheOffset(
-      constraints,
+      sliverConstraints,
       from: 0.0,
       to: beforePadding,
     );
     final double afterPaddingCacheExtent = calculateCacheOffset(
-      constraints,
+      sliverConstraints,
       from: beforePadding + childLayoutGeometry.scrollExtent,
       to: mainAxisPadding + childLayoutGeometry.scrollExtent,
     );
