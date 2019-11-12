@@ -35,9 +35,18 @@ class MyPainter extends CustomPainter {
     final bool clockwise = endAngle > startAngle;
     final bool largeArc = (endAngle - startAngle).abs() > 180.0;
     final Path path = Path()
-      ..moveTo(startX, startY)
-      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
-          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
+      ..moveTo(cx, cy)
+      ..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
+//      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
+//          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
+
+    final path2.Path newPath = path2.Path()
+      ..moveTo(cx, cy)
+      ..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
+//      ..moveTo(startX, startY)
+//      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
+//          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
+
 
     canvas.drawPath(path,
         Paint()
@@ -52,20 +61,27 @@ class MyPainter extends CustomPainter {
         ..color=Colors.black
     );
 
-    final path2.Path newPath = path2.Path()
-      ..moveTo(startX, startY)
-      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
-          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
-
 
     PathMetric2 metric = PathMetric2._(newPath, false);
     final List<_PathSegment> segments = metric._segments;
+    final Paint redFill = Paint()
+      ..style = PaintingStyle.fill
+      ..color = Colors.red;
+    final Paint greenFill = Paint()
+      ..style = PaintingStyle.fill
+      ..color = Colors.green;
     for (int i = 0; i < segments.length; i++) {
       final _PathSegment seg = segments[i];
-      canvas.drawCircle(Offset(seg.points[0], seg.points[1]), 2.0,
-          Paint()
-            ..style = PaintingStyle.fill
-            ..color = Colors.red);
+      canvas.drawCircle(Offset(seg.points[0], seg.points[1]), 2.0, redFill);
+
+      if (seg.segmentType == engine.PathCommandTypes.lineTo) {
+        canvas.drawCircle(Offset(seg.points[0], seg.points[1]), 2.0, redFill);
+        canvas.drawCircle(Offset(seg.points[2], seg.points[3]), 2.0, redFill);
+      }
+      if (seg.segmentType == engine.PathCommandTypes.quadraticCurveTo) {
+        canvas.drawCircle(Offset(seg.points[0], seg.points[1]), 2.0, greenFill);
+        canvas.drawCircle(Offset(seg.points[4], seg.points[5]), 2.0, greenFill);
+      }
     }
 
   }
@@ -115,7 +131,7 @@ class _MyHomePageState extends State<MyHomePage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Container(color: Colors.blueGrey, width: 400.0, height: 400.0,
+              Container(color: Colors.blueGrey.withAlpha(0x40), width: 800.0, height: 800.0,
                 child: CustomPaint(painter: MyPainter(_startAngle, _endAngle, _rotation)),
               ),
               Slider(value: _startAngle, min: 0.0, max: 360.0,
@@ -313,6 +329,7 @@ class PathMetric2 {
           currentX = moveTo.x;
           currentY = moveTo.y;
           _isClosed = true;
+          haveSeenMoveTo = true;
           break;
         case engine.PathCommandTypes.lineTo:
           assert(haveSeenMoveTo);
