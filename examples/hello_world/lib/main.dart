@@ -2,794 +2,548 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:js_util' as js_util;
-import 'dart:async';
-import 'dart:html' as html;
-import 'dart:io';
+import 'dart:collection' as collection;
 import 'dart:math' as math;
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart';
+import 'dart:typed_data';
+import 'dart:ui' as engine;
+import 'path2.dart' as path2;
+import 'engine2.dart' as engine;
 
-import 'rally/app.dart';
-void main() {
-  runApp(RallyApp());
-}
+void main() => runApp(MyApp());
 
+class MyPainter extends CustomPainter {
+  MyPainter(this.startAngle, this.endAngle, this.rotation);
 
-/// The HTML engine used by the current browser.
-enum BrowserEngine {
-  /// The engine that powers Chrome, Samsung Internet Browser, UC Browser,
-  /// Microsoft Edge, Opera, and others.
-  blink,
+  final double startAngle,endAngle,rotation;
 
-  /// The engine that powers Safari.
-  webkit,
-
-  /// The engine that powers Firefox.
-  firefox,
-
-  /// We were unable to detect the current browser engine.
-  unknown,
-}
-
-/// Lazily initialized current browser engine.
-BrowserEngine _browserEngine;
-
-/// Returns the [BrowserEngine] used by the current browser.
-///
-/// This is used to implement browser-specific behavior.
-BrowserEngine get browserEngine => _browserEngine ??= _detectBrowserEngine();
-
-BrowserEngine _detectBrowserEngine() {
-  final String vendor = html.window.navigator.vendor;
-  if (vendor == 'Google Inc.') {
-    return BrowserEngine.blink;
-  } else if (vendor == 'Apple Computer, Inc.') {
-    return BrowserEngine.webkit;
-  } else if (vendor == '') {
-    // An empty string means firefox:
-    // https://developer.mozilla.org/en-US/docs/Web/API/Navigator/vendor
-    return BrowserEngine.firefox;
-  }
-
-  // Assume blink otherwise, but issue a warning.
-  print('WARNING: failed to detect current browser engine.');
-
-  return BrowserEngine.unknown;
-}
-
-// Feature detection for createImageBitmap.
-bool _browserFeatureCreateImageBitmap;
-bool get _browserSupportsCreateImageBitmap =>
-    _browserFeatureCreateImageBitmap ??
-        js_util.hasProperty(html.window, 'createImageBitmap');
-
-int frameIndex = 0;
-bool loaded = false;
-void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
-  if (loaded) return;
-  loaded = true;
-  String src =
-      'https://images.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png';
-      //'assets/lib/animated_images/animated_flutter_lgtm.gif';
-
-      html.HttpRequest.request(src,
-      responseType: 'arraybuffer').then((html.HttpRequest req) {
-    final ByteBuffer buffer = req.response;
-    final ByteData byteData = ByteData.view(buffer);
-    _imageLoaded2(byteData);
-  }, onError: (dynamic error) {
-    // CORS error.
-    final html.ImageElement imageElement = html.ImageElement();
-    imageElement.src = src;
-    imageElement.decode().then((dynamic _) {
-
-    });
-  });
-}
-
-void _imageLoaded2(ByteData byteData) {
-  final GifCodec gif = GifCodec(byteData);
-  gif.decode();
-  final html.CanvasElement canvas = html.CanvasElement();
-  canvas.width = 1000;
-  canvas.height = 1000;
-  html.document.body.append(canvas);
-  final html.CanvasRenderingContext2D ctx = canvas.context2D;
-
-  Function drawNextFrame;
-
-  final _GifFrame frame = gif.frames[frameIndex++];
-  if (frameIndex == gif.frameCount) {
-    frameIndex = 0;
-  }
-
-  final html.ImageData imageData = frame.readImageData();
-
-  if (_browserSupportsCreateImageBitmap) {
-    final dynamic imageBitmapPromise = js_util.callMethod(
-        html.window, 'createImageBitmap',
-        <dynamic>[imageData]);
-    final Function imageBitmapLoaded = (dynamic value) {
-      js_util.callMethod(ctx, 'drawImage', <dynamic>[
-        value,
-        0,
-        0,
-        frame.width,
-        frame.height,
-        200,
-        100,
-        2 * frame.width,
-        2 * frame.height
-      ]);
-    };
-    html.promiseToFuture<dynamic>(imageBitmapPromise).then((
-        dynamic imageBitmap) {
-      imageBitmapLoaded(imageBitmap);
-    });
-  } else {
-    if (browserEngine == BrowserEngine.webkit) {
-      html.CanvasElement canvas = html.CanvasElement(
-          width: frame.width, height: frame.height);
-      final dynamic offscreenCtx = js_util.callMethod(
-          canvas, 'getContext', <dynamic>['2d']);
-      assert(offscreenCtx != null);
-      js_util.callMethod(
-          offscreenCtx, 'putImageData', <dynamic>[imageData, 0, 0]);
-      js_util.callMethod(ctx, 'drawImage', <dynamic>[
-        canvas,
-        0,
-        0,
-        frame.width,
-        frame.height,
-        0,
-        0,
-        2 * frame.width,
-        2 * frame.height
-      ]);
-    } else {
-      // Drawing ImageData scaled/transformed to target context.
-      final html.OffscreenCanvas canvas = html.OffscreenCanvas(
-          frame.width, frame.height);
-      final dynamic offscreenCtx = js_util.callMethod(
-          canvas, 'getContext', <dynamic>['2d']);
-      assert(offscreenCtx != null);
-      js_util.callMethod(
-          offscreenCtx, 'putImageData', <dynamic>[imageData, 0, 0]);
-      js_util.callMethod(ctx, 'drawImage', <dynamic>[
-        canvas,
-        0,
-        0,
-        frame.width,
-        frame.height,
-        0,
-        0,
-        2 * frame.width,
-        2 * frame.height
-      ]);
-    }
-  }
-//        // Drawing ImageData scaled/transformed to target context.
-//        html.OffscreenCanvas canvas = html.OffscreenCanvas(frame.width, frame.height);
-//        dynamic offscreenCtx = js_util.callMethod(canvas, 'getContext', <dynamic>['2d']);
-//        assert(offscreenCtx != null);
-//        js_util.callMethod(
-//            offscreenCtx, 'putImageData', <dynamic>[imageData, 0, 0]);
-//        js_util.callMethod(ctx, 'drawImage', <dynamic>[canvas, 0, 0, frame.width, frame.height, 0, 0, 2 * frame.width, 2 * frame.height]);
-//
-//    if (frameIndex == gif.frames.length) frameIndex = 0;
-//    Timer(Duration(milliseconds: 30), drawNextFrame);
-}
-
-
-/// Decodes GIF into a set of frames.
-///
-/// File format: (spec https://www.w3.org/Graphics/GIF/spec-gif89a.txt)
-///
-/// 1- Header block
-///    A gif header is composed of a signature (first 3 bytes) that are ASCII
-///    code for "GIF" followed by a 3 byte version block "87a" or "89a".
-/// 2- Logical Screen Descriptor
-///    Logical Screen Width (uint16)
-///    Logical Screen Height (uint16)
-///    Packed Fields
-///      1 bit  Global Color Table Flag
-///      3 bits Color Resolution
-///      1 bit  Sort Flag
-///      3 bits Size of Global Color Table
-///    Background Color Index
-///    Pixel Aspect Ratio
-/// ******
-///
-/// Application Extension | Comment Extension
-///   [Optional Graphic Control] + Image Descriptor + ImageData or
-///   [Optional Graphic Control] + Plain Text Extension
-///
-/// Image Descriptor:
-///   Image seperator [2C]
-///   16 bit ImageLeft
-///   16 bit ImageTop
-///   16 bit ImageWidth
-///   16 bit ImageHeight
-///   8 bit Packet ImageFlag
-///       Local Color Table Flag (1bit)
-///       Interlace Flag (1bit)
-///       Sort Flag (1bit)
-///       Reserved (2bits)
-///       Size of local color table (2bits)
-///   [Local Color Table]
-///
-/// Trailer = 0x3B
-///
-/// Lempel-Ziv Welch Gif variation
-/// LZW takes advantage of repetition inside raster data.
-/// The predefined code size determines the size of the dictionary table (called
-/// a stringtable, we use when converting from a codestream to a uncompressed
-/// charstream.
-///
-/// The string table for Gif not only includes the color indices but in addition
-/// has a ClearCode and EndOfInformationCode.
-///
-/// Pseudo code for compression:
-/// - Initialize string table based on code size (numBits)
-/// - set prefix = empty
-/// - loop while charstream not empty:
-/// -     read nextChar from charstream
-/// -     if (stringtable contains prefix+nextChar)
-/// -          prefix = prefix + nextChar
-/// -     else
-/// -          add prefix+nextChar to string table
-/// -          output prefix to codestream
-/// -          set prefix = nextChar
-/// - charstream empty so just output prefix and end
-///
-/// Basically as we see repeating prefix chains such as ab,abc,abcd we create
-/// entries in the stringtable for these common prefixes. Straight LZW runs the
-/// risk of overflowing the string table (more bits than you specified as max).
-///
-/// Pseudo code for decompression:
-/// - Initialize string table based on code size (numBits)
-/// - read first code , output stringtable content for code
-/// - set oldCode = code
-/// - read next code
-/// - loop
-/// -     if code exists in string table
-/// -         output string for code to charstream
-/// -         prefix = translation for oldCode
-/// -         add prefix+first character of translation for code to table
-/// -         oldCode = code
-/// -     else
-/// -         prefix = translation for old
-/// -         K = first character of prefix
-/// -         output prefix+K to charstream and add to string table
-/// -         oldCode = code
-/// -
-/// The codestream for GIF files uses flexible code sizes. It allows reducing
-/// the number of bits stored. The image data block begins with a single byte
-/// value called the LZW minimum code size (N). The GIF format allows any value
-/// between 2 and 12 bits. Minimum code size is typically based on number of
-/// colors. Since we also need a clear and end code, we need (N+1) bits to start
-/// with. As larger codes get added to table, the number of bits used for
-/// encoding grows. Once we have exhausted 12 bits, a ClearCode is emitted
-/// to clear the table to initial state (N+1) and start over.
-///
-class GifCodec {
-  GifCodec(this.byteData);
-
-  static const String _gifExtension = '.gif';
-  static const int _kEndOfGifStream = 0x3B;
-
-  static const int _kExtensionHeader = 0x21;
-  static const int _kImageDescriptorHeader = 0x2C;
-  static const int _kImageImageDataHeader = 0x02;
-
-  static const int _plainTextLabelExtensionId = 0x1; // followed by 1 byte block size
-  static const int _applicationExtensionId = 0xFF;
-  static const int _commentExtensionId = 0xFE;
-  static const int _graphicControlExtensionId = 0xF9;
-
-  // Size of Gif file format header.
-  static int kHeaderSize = 6;
-
-  int _logicalWidth;
-  int _logicalHeight;
-  int _pixelAspectRatio;
-  bool _hasGlobalColorTable;
-  bool _colorTableSorted;
-  int _bitsPerPixel;
-  int _globalColorTableSize;
-  int _backgroundColorIndex;
-  int _repeatCount = -1;
-
-  ByteData byteData;
-  List<_GifFrame> _frames;
-
-  List<_GifFrame> get frames => _frames;
-
-  int get width => _logicalWidth;
-
-  int get height => _logicalHeight;
-
-  int get repeatCount => _repeatCount;
-
-  int get frameCount => _frames == null ? 0 : _frames.length;
-
-  bool get colorTableSorted => _colorTableSorted;
-
-  double get aspectRatio => (_pixelAspectRatio == 0) ? 0
-      : (_pixelAspectRatio + 15) / 64;
-
-  int get bitsPerPixel => _bitsPerPixel;
-
-  void decode() {
-    _frames = <_GifFrame>[];
-    bool hasTransparency = false;
-    int transparentColorIndex;
-    int delayTime;
-    // The disposal method specifies the way in which the graphic is to be
-    // used after rendering.
-    //   0 - No disposal specified
-    //   1 - Do not dispose. The graphic is left in place.
-    //   2 - Restore to background color (the area should be cleared to
-    //       background color.
-    //   3 - Restore to previous. The decoder is required to
-    //       to restore the area after the last disposal method.
-    int disposalMethod;
-
-    final int totalBytes = byteData.lengthInBytes;
-    int offset = kHeaderSize;
-    _logicalWidth = byteData.getUint16(offset, Endian.little);
-    offset += 2;
-    _logicalHeight = byteData.getUint16(offset, Endian.little);
-    offset += 2;
-    final int flags = byteData.getUint8(offset++);
-    _hasGlobalColorTable = (flags & 0x80) != 0;
-    _bitsPerPixel = ((flags >> 4) & 7) + 1;
-    _colorTableSorted = (flags >> 3) & 0x1 != 0;
-    _globalColorTableSize = math.pow(2, (flags&7) + 1);
-    _backgroundColorIndex = byteData.getUint8(offset++);
-    _pixelAspectRatio = byteData.getUint8(offset++);
-    Uint32List globalColorTable, activeColorTable;
-    // Read Global Color Table
-    if (_hasGlobalColorTable) {
-      final int numBytesInColorTable = _globalColorTableSize * 3;
-      activeColorTable = globalColorTable =
-          _readColorTable(offset, _globalColorTableSize);
-      offset += 3 * _globalColorTableSize;
-    } else {
-      offset += _globalColorTableSize * 3;
-    }
-    int header = 0;
-    while (offset < totalBytes) {
-      header = byteData.getUint8(offset++);
-      if (header == _kExtensionHeader) {
-        final int extensionType = byteData.getUint8(offset++);
-        switch(extensionType) {
-          case _plainTextLabelExtensionId:
-            offset = _readPlainTextLabelExtension(offset);
-            break;
-          case _applicationExtensionId:
-            offset = _readApplicationExtensions(offset);
-            break;
-          case _commentExtensionId:
-            offset = _readCommentExtension(offset);
-            break;
-          case _graphicControlExtensionId:
-            final int byteSize = byteData.getUint8(offset++);
-            assert(byteSize >= 4);
-            /// 3 bits reserved
-            /// 3 bits disposal method
-            /// 1 bit user input
-            /// 1 bit transparent color flag
-            final int flags = byteData.getUint8(offset++);
-            hasTransparency = (flags & 1) != 0;
-            disposalMethod = (flags >> 2) & 7;
-            delayTime = byteData.getUint16(offset, Endian.little);
-            offset += 2;
-            transparentColorIndex = byteData.getUint8(offset++);
-            if (byteSize > 4) {
-              offset += byteSize - 4; // Skip unknown bytes
-            }
-            final int blockTerminator = byteData.getUint8(offset++);
-            if (blockTerminator != 0) {
-              throw const FormatException();
-            }
-            break;
-          default:
-            throw FormatException('Unexpected gif extension type $extensionType');
-        }
-      } else if (header == _kImageDescriptorHeader) {
-        final int imageLeft = byteData.getUint16(offset, Endian.little);
-        offset += 2;
-        final int imageTop = byteData.getUint16(offset, Endian.little);
-        offset += 2;
-        final int imageWidth = byteData.getUint16(offset, Endian.little);
-        offset += 2;
-        final int imageHeight = byteData.getUint16(offset, Endian.little);
-        offset += 2;
-        final int flags = byteData.getUint8(offset++);
-        final bool hasLocalColorTable = (flags & 0x80) != 0;
-        final bool interlace = (flags & 0x40) != 0;
-        final bool sorted = (flags & 0x20) != 0;
-        final int localColorTableSize = math.pow(2, (flags&7) + 1);
-        // Read local color table.
-        if (hasLocalColorTable) {
-          activeColorTable = _readColorTable(offset, localColorTableSize);
-          offset += 3 * localColorTableSize;
-        }
-        // Read Image data.
-        final int lzwMinCodeSize = byteData.getUint8(offset++);
-        final int subBlocksTotalSize = _readSubBlocksLength(byteData, offset);
-        final Uint8List compressedImageData = Uint8List(subBlocksTotalSize);
-        offset = _readSubBlocks(byteData, offset, compressedImageData);
-        final Uint8ClampedList imageData = _decompressGif(compressedImageData,
-            lzwMinCodeSize, imageWidth * imageHeight, activeColorTable,
-            hasTransparency ? transparentColorIndex : -1,
-            _frames.isEmpty ? null : _frames.last);
-        _frames.add(_GifFrame(imageWidth, imageHeight, imageData,
-            disposalMethod));
-        // Reset graphic control parameters.
-        activeColorTable = globalColorTable;
-        hasTransparency = false;
-        transparentColorIndex = null;
-        delayTime = null;
-      } else if (header == _kEndOfGifStream) {
-        assert(offset == totalBytes);
-        break;
-      } else {
-        throw FormatException('Unexpect header code $header');
-      }
-    }
-  }
-
-  int _readPlainTextLabelExtension(int offset) {
-    // Not used. ignoring header and unused data.
-    final int headerSize = byteData.getUint8(offset++);
-    offset += headerSize;
-    int blockLength;
-    do {
-      blockLength = byteData.getUint8(offset++);
-      offset += blockLength;
-    } while (blockLength != 0);
-    return offset;
-  }
-
-  int _readApplicationExtensions(int offset) {
-    final int blockSize = byteData.getUint8(offset++);
-    final String appId = _byteDataToAscii(byteData, offset, 8);
-    offset += 8;
-    final String appAuth = _byteDataToAscii(byteData, offset, 3);
-    offset += 3;
-    // Read sub blocks. Blocks are terminated with 0 length.
-    int blockLength = byteData.getUint8(offset++);
-    int blockIndex = 0;
-    while (blockLength != 0) {
-      _readAppExtension(appId, appAuth, blockIndex++,
-          offset, blockLength);
-      offset += blockLength;
-      blockLength = byteData.getUint8(offset++);
-    }
-    return offset;
-  }
-
-  int _readCommentExtension(int offset) {
-    final int blockLength = byteData.getUint8(offset++);
-    offset += blockLength;
-    final int trailer = byteData.getUint8(offset++);
-    if (trailer != 0) {
-      throw const FormatException();
-    }
-    return offset;
-  }
-
-  Uint32List _readColorTable(int offset, int colorCount) {
-    final Uint32List colorTable = Uint32List(colorCount);
-    for (int c = 0; c < colorCount; c++) {
-      colorTable[c] = 0xFF000000 |
-      byteData.getUint8(offset++) |
-      byteData.getUint8(offset++) << 8 |
-      byteData.getUint8(offset++) << 16;
-    }
-    return colorTable;
-  }
-
-  void _readAppExtension(String appId, String appAuth, int blockIndex,
-      int offset, int length) {
-    if (appId == 'NETSCAPE' && appAuth == '2.0') {
-      if (blockIndex != 0) {
-        throw const FormatException();
-      }
-      final int header = byteData.getUint8(offset++);
-      if (header != 0x1) {
-        throw const FormatException();
-      }
-      _repeatCount = byteData.getUint16(offset, Endian.little);
-    } else {
-      print('Skipping unknown gif app extension $appId, $appAuth');
-    }
-  }
-
-  static String _byteDataToAscii(ByteData byteData, int offset, int length) {
-    final StringBuffer sb = StringBuffer();
-    for (int i = 0; i < length; i++) {
-      final int byte = byteData.getUint8(offset + i);
-      sb.writeCharCode(byte);
-    }
-    return sb.toString();
-  }
-
-  static int _readSubBlocksLength(ByteData byteData, int offset) {
-    int lengthInBytes = 0;
-    int blockLength;
-    do {
-      blockLength = byteData.getUint8(offset++);
-      if (blockLength != 0) {
-        lengthInBytes += blockLength;
-        offset += blockLength;
-      }
-    } while (blockLength != 0);
-    return lengthInBytes;
-  }
-
-  static int _readSubBlocks(ByteData byteData, int offset, Uint8List target) {
-    int destIndex = 0;
-    int blockLength;
-    do {
-      blockLength = byteData.getUint8(offset++);
-      if (blockLength != 0) {
-        for (int i = 0; i < blockLength; i++) {
-          target[destIndex++] = byteData.getUint8(offset++);
-        }
-      }
-    } while (blockLength != 0);
-    return offset;
-  }
-
-  static List<int> sharedMask = <int>[0x0, 0x1, 0x3, 0x7, 0xF, 0x1F, 0x3F,
-    0x7F, 0xFF];
-
-  static Uint8ClampedList _decompressGif(Uint8List source, int minCodeSizeInBits,
-      int numPixels, Uint32List colorTable, int transparentColorIndex,
-      _GifFrame _priorFrame) {
-    final List<int> _lsbMask = sharedMask;
-    const int bytesPerPixel = 4;
-    final Uint8ClampedList data = Uint8ClampedList(numPixels * bytesPerPixel);
-    int writeIndex = 0;
-    final int minCodeSize = 1 << minCodeSizeInBits;
-    final int clearCode = minCodeSize;
-    final int stopCode = clearCode + 1;
-    //final _Dictionary dict = _Dictionary(clearCode);
-    int totalBitsToRead = minCodeSizeInBits + 1;
-    int dictionaryLimit = 1 << totalBitsToRead;
-    int code;
-    int previousCode;
-    final int sourceLength = source.lengthInBytes;
-    int sourcePos = 0;
-    int sourceBitsAvailable = 8;
-    final List<String> dictionary = <String>[];
-    while (sourcePos < sourceLength) {
-      int sourceByte = source[sourcePos];
-      previousCode = code;
-      // Read numBits from source stream.
-      int bitsToRead = totalBitsToRead;
-      if (bitsToRead < sourceBitsAvailable) {
-        final int shiftR = 8 - sourceBitsAvailable;
-        final int lsbMask = _lsbMask[bitsToRead];
-        code = (sourceByte >> shiftR) & lsbMask;
-        sourceBitsAvailable -= bitsToRead;
-      } else if (bitsToRead == sourceBitsAvailable) {
-        final int lsbMask = _lsbMask[bitsToRead];
-        code = (sourceByte >> (8- sourceBitsAvailable)) & lsbMask;
-        sourceBitsAvailable = 8;
-        ++sourcePos;
-      } else {
-        // First read sourceBitsAvailable and then read remaining from remaining
-        // bytes in input stream until bitsToRead is 0.
-        final int lsbMask = _lsbMask[sourceBitsAvailable];
-        code = (sourceByte >> (8 - sourceBitsAvailable)) & lsbMask;
-        bitsToRead -= sourceBitsAvailable;
-        int bitsRead = sourceBitsAvailable;
-        //final int decodedBitCount = sourceBitsAvailable;
-        ++sourcePos;
-        sourceBitsAvailable = 8;
-        sourceByte = source[sourcePos];
-        if (bitsToRead < 8) {
-          final int shiftR = 8 - sourceBitsAvailable;
-          final int lsbMask = _lsbMask[bitsToRead];
-          code = code | (((sourceByte >> shiftR) & lsbMask) << bitsRead);
-          sourceBitsAvailable -= bitsToRead;
-        } else if (bitsToRead == 8) {
-          final int lsbMask = _lsbMask[8];
-          code = code | ((sourceByte & lsbMask) << bitsRead);
-          sourceBitsAvailable = 8;
-          ++sourcePos;
-        } else {
-          // Max number of bits is 12 for GIF LZW. Read 8 bits off of source and
-          // remaining bits from next.
-          final int lsbMask = _lsbMask[8];
-          code = code | ((sourceByte & lsbMask) << bitsRead);
-          sourceBitsAvailable = 8;
-          ++sourcePos;
-          bitsToRead -= 8;
-          bitsRead += 8;
-          sourceByte = source[sourcePos];
-          assert(bitsToRead < 8);
-          final int shiftR = 8 - sourceBitsAvailable;
-          code = code | (((sourceByte >> shiftR) & _lsbMask[bitsToRead]) << bitsRead);
-          sourceBitsAvailable -= bitsToRead;
-        }
-      }
-      if (code == clearCode) {
-        _clearDictionary(dictionary, minCodeSize);
-        totalBitsToRead = minCodeSizeInBits + 1;
-        dictionaryLimit = 1 << totalBitsToRead;
-        continue;
-      }
-      if (code == stopCode) {
-        break;
-      }
-      if (code < dictionary.length) {
-        if (previousCode != clearCode) {
-          final String prefix = dictionary[code][0];
-          dictionary.add(dictionary[previousCode] + prefix);
-        }
-      } else {
-        if (code != dictionary.length) {
-          throw const FormatException('Invalid compression code');
-        }
-        dictionary.add(dictionary[previousCode] + dictionary[previousCode][0]);
-      }
-      // Once we fill up the dictionary for totalBitsRead, increase number of bits.
-      // 12 bits is the max number of bits and has to be followed by a clearCode on the next
-      // read.
-      if (dictionary.length == dictionaryLimit && totalBitsToRead < 12) {
-        ++totalBitsToRead;
-        dictionaryLimit = 1 << totalBitsToRead;
-      }
-      final String dataToWrite = dictionary[code];
-      final int len = dataToWrite.length;
-      for (int i = 0; i < len; i++) {
-        final int colorIndex = dataToWrite.codeUnitAt(i);
-        if (transparentColorIndex != colorIndex) {
-          final int color = colorTable[colorIndex];
-          data[writeIndex++] = color & 0xFF;
-          data[writeIndex++] = (color >> 8) & 0xFF;
-          data[writeIndex++] = (color >> 16) & 0xFF;
-          data[writeIndex++] = (color >> 24) & 0xFF;
-        }
-        else {
-          if (_priorFrame != null && _priorFrame.disposalMethod == 1) {
-            data[writeIndex] = _priorFrame.data[writeIndex];
-            writeIndex++;
-            data[writeIndex] = _priorFrame.data[writeIndex];
-            writeIndex++;
-            data[writeIndex] = _priorFrame.data[writeIndex];
-            writeIndex++;
-            data[writeIndex] = _priorFrame.data[writeIndex];
-            writeIndex++;
-          } else {
-            data[writeIndex++] = 0;
-            data[writeIndex++] = 0;
-            data[writeIndex++] = 0;
-            data[writeIndex++] = 0;
-          }
-        }
-      }
-    }
-    return data;
-  }
-  static void _clearDictionary(List<String> dict, int codeSize) {
-    dict.clear();
-    for (int i = 0; i < codeSize; i++) {
-      dict.add(String.fromCharCode(i));
-    }
-    // Clear code.
-    dict.add('');
-    // Stop code.
-    dict.add(null);
-  }
-}
-
-class _GifFrame {
-  _GifFrame(this.width, this.height, this.data, this.disposalMethod);
-  final Uint8ClampedList data;
-  final int width;
-  final int height;
-  final int disposalMethod;
-  html.ImageData _imageData;
-
-  html.ImageData readImageData() {
-    return _imageData ??= html.ImageData(data, width, height);
-  }
-}
-
-class MyApp extends StatefulWidget {
   @override
-  State<StatefulWidget> createState() => MyAppState();
+  void paint(Canvas canvas, Size size) {
+    const double rx = 100;
+    const double ry = 50;
+    const double cx = 150;
+    const double cy  = 100;
+
+    double startRad = startAngle *math.pi / 180.0;
+    double endRad = endAngle*math.pi / 180.0;
+
+    final double startX = cx + (rx * math.cos(startRad));
+    final double startY = cy + (ry * math.sin(startRad));
+    final double endX = cx + (rx * math.cos(endRad));
+    final double endY = cy + (ry * math.sin(endRad));
+
+    final bool clockwise = endAngle > startAngle;
+    final bool largeArc = (endAngle - startAngle).abs() > 180.0;
+    final Path path = Path()
+      ..moveTo(startX, startY)
+      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
+          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
+    canvas.drawPath(path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0
+          ..color = Colors.white
+    );
+    canvas.drawRect(const Rect.fromLTRB(cx - rx, cy - ry, cx + rx, cy + ry),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color=Colors.black
+    );
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) {
+    return true;
+  }
 }
 
-class MyAppState extends State<MyApp> {
-  double _startAngle = 0, _endAngle = 360, _rotation = 0;
-
+class MyApp extends StatelessWidget {
+  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    final Image image = Image.asset('lib/animated_images/animated_flutter_lgtm.gif');
-    final ImageStream stream = image.image.resolve(const ImageConfiguration());
-    stream.addListener(const ImageStreamListener(imageLoaded));
-
     return MaterialApp(
-      home: Column(children: <Widget>[
-        Center(
-            child: Column(children: <Widget>[
-//              Image.asset('lib/animated_images/giphy1.gif'),
-//              Text('AAA'),
-//              Image.asset('lib/animated_images/animated_flutter_lgtm.gif'),
-//              Text('BBB'),
-//              Image.asset('lib/animated_images/giphy2.gif'),
-//              Text('CCC'),
-            ]
-            )
-        ),
-      ]),
+      title: 'Flutter Demo',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
-class MyPainter extends CustomPainter {
-  MyPainter(this.myappState);
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({Key key, this.title}) : super(key: key);
 
-  final MyAppState myappState;
+  final String title;
 
   @override
-  void paint(Canvas canvas, Size size) {
-//    const Rect paintRect = Rect.fromLTRB(50, 50, 300, 300);
-//    const Rect shaderRect = Rect.fromLTRB(50, 50, 100, 100);
-//    final Paint paint = Paint()
-//        ..shader = RadialGradient(
-//            tileMode: TileMode.repeated,
-//            center: Alignment.center,
-//            colors: [Colors.black, Colors.blue]
-//        ).createShader(shaderRect);
-//    final Path path = Path();
-//    path.addRect(paintRect);
-//    canvas.drawPath(path, paint);
+  _MyHomePageState createState() => _MyHomePageState();
+}
 
-    canvas.drawCircle(const Offset(220.0, 220.0), 150.0, Paint()
-      ..style = PaintingStyle.fill
-      ..color = const Color.fromARGB(128, 255, 0, 0));
+class _MyHomePageState extends State<MyHomePage> {
+  double _startAngle = 0;
+  double _endAngle = 280;
+  double _rotation = 0;
 
-    canvas.drawCircle(const Offset(380.0, 220.0), 150.0, Paint()
-      ..style = PaintingStyle.fill
-      ..color = const Color.fromARGB(128, 0, 255, 0));
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+      ),
+      body: Center(
+        child: Padding(padding: const EdgeInsets.only(left: 20.0, right: 20.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Container(color: Colors.blueGrey, width: 400.0, height: 400.0,
+                child: CustomPaint(painter: MyPainter(_startAngle, _endAngle, _rotation)),
+              ),
+              Slider(value: _startAngle, min: 0.0, max: 360.0,
+                label: 'start',
+                onChanged: (double value) {
+                  setState(() {
+                    _startAngle = value;
+                  });
+                },
+              ),
+              Slider(value: _endAngle, min: 0.0, max: 360.0,
+                label: 'end',
+                onChanged: (double value) {
+                  setState(() {
+                    _endAngle = value;
+                  });
+                },
+              ),
+              Slider(value: _rotation, min: 0.0, max: 360.0,
+                label: 'rotate',
+                onChanged: (double value) {
+                  setState(() {
+                    _rotation = value;
+                  });
+                },
+              ),
 
-    canvas.drawCircle(const Offset(300.0, 420.0), 150.0, Paint()
-      ..style = PaintingStyle.fill
-      ..color = const Color.fromARGB(128, 0, 0, 255));
+            ],
+          ),
+        ),
+      ),
+      // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+}
 
-//    final Int32List colors = Int32List.fromList(<int>[
-//      0xFFFF0000, 0xFF00FF00, 0xFF0000FF,
-//    ]);
-//    final Float32List positions = Float32List.fromList([
-//      200.0, 200.0, 400.0, 200.0, 300.0, 400.0,
-//    ]);
-//    final ui.Vertices vertices = ui.Vertices.raw(VertexMode.triangles,
-//        positions , colors: colors);
-//    canvas.drawVertices(vertices, BlendMode.lighten, Paint());
 
-    final Int32List colors = Int32List.fromList(<int>[
-      0xFFFF0000, 0xFF00FF00, 0xFF0000FF,
-      0xFFFF0000, 0xFF00FF00, 0xFF0000FF]);
-    final ui.Vertices vertices = ui.Vertices.raw(VertexMode.triangleFan,
-        Float32List.fromList([
-          150.0, 150.0, 20.0, 10.0, 80.0, 20.0,
-          220.0, 15.0, 280.0, 30.0, 300.0, 420.0
-        ]), colors: colors);
-    canvas.drawVertices(vertices, BlendMode.srcOver, Paint());
+/// An iterable collection of [PathMetric] objects describing a [Path].
+///
+/// A [PathMetrics] object is created by using the [Path.computeMetrics] method,
+/// and represents the path as it stood at the time of the call. Subsequent
+/// modifications of the path do not affect the [PathMetrics] object.
+///
+/// Each path metric corresponds to a segment, or contour, of a path.
+///
+/// For example, a path consisting of a [Path.lineTo], a [Path.moveTo], and
+/// another [Path.lineTo] will contain two contours and thus be represented by
+/// two [PathMetric] objects.
+///
+/// When iterating across a [PathMetrics]' contours, the [PathMetric] objects
+/// are only valid until the next one is obtained.
+class PathMetrics2 extends collection.IterableBase<PathMetric2> {
+  PathMetrics2._(path2.Path path, bool forceClosed)
+      : _iterator = PathMetricIterator2._(PathMetric2._(path, forceClosed));
+
+  final Iterator<PathMetric2> _iterator;
+
+  @override
+  Iterator<PathMetric2> get iterator => _iterator;
+}
+
+/// Tracks iteration from one segment of a path to the next for measurement.
+class PathMetricIterator2 implements Iterator<PathMetric2> {
+  PathMetricIterator2._(this._pathMetric);
+
+  PathMetric2 _pathMetric;
+  bool _firstTime = true;
+
+  @override
+  PathMetric2 get current => _firstTime ? null : _pathMetric;
+
+  @override
+  bool moveNext() {
+    // PathMetric isn't a normal iterable - it's already initialized to its
+    // first Path.  Should only call _moveNext when done with the first one.
+    if (_firstTime == true) {
+      _firstTime = false;
+      return true;
+    } else if (_pathMetric?._moveNext() == true) {
+      return true;
+    }
+    _pathMetric = null;
+    return false;
+  }
+}
+
+const int _kMaxTValue = 0x3FFFFFFF;
+const double _fTolerance = 0.5;
+
+/// Utilities for measuring a [Path] and extracting subpaths.
+///
+/// Iterate over the object returned by [Path.computeMetrics] to obtain
+/// [PathMetric] objects.
+///
+/// Once created, metrics will only be valid while the iterator is at the given
+/// contour. When the next contour's [PathMetric] is obtained, this object
+/// becomes invalid.
+///
+/// Implementation is based on
+/// https://github.com/google/skia/blob/master/src/core/SkContourMeasure.cpp
+/// to maintain consistency with native platforms.
+class PathMetric2 {
+  final path2.Path _path;
+  final bool _forceClosed;
+
+  // If the contour ends with a call to [Path.close] (which may
+  // have been implied when using [Path.addRect])
+  bool _isClosed;
+  // Iterator index into [Path.subPaths]
+  int _subPathIndex = 0;
+  List<_PathSegment> _segments;
+
+  /// Create a new empty [Path] object.
+  PathMetric2._(this._path, this._forceClosed) {
+    _buildSegments();
+  }
+
+  /// Return the total length of the current contour.
+  double get length => throw UnimplementedError();
+
+  /// Computes the position of hte current contour at the given offset, and the
+  /// angle of the path at that point.
+  ///
+  /// For example, calling this method with a distance of 1.41 for a line from
+  /// 0.0,0.0 to 2.0,2.0 would give a point 1.0,1.0 and the angle 45 degrees
+  /// (but in radians).
+  ///
+  /// Returns null if the contour has zero [length].
+  ///
+  /// The distance is clamped to the [length] of the current contour.
+  Tangent2 getTangentForOffset(double distance) {
+    final Float32List posTan = _getPosTan(distance);
+    // first entry == 0 indicates that Skia returned false
+    if (posTan[0] == 0.0) {
+      return null;
+    } else {
+      return Tangent2(
+          Offset(posTan[1], posTan[2]), Offset(posTan[3], posTan[4]));
+    }
+  }
+
+  Float32List _getPosTan(double distance) => throw UnimplementedError();
+
+  /// Given a start and stop distance, return the intervening segment(s).
+  ///
+  /// `start` and `end` are pinned to legal values (0..[length])
+  /// Returns null if the segment is 0 length or `start` > `stop`.
+  /// Begin the segment with a moveTo if `startWithMoveTo` is true.
+  Path extractPath(double start, double end, {bool startWithMoveTo = true}) =>
+      throw UnimplementedError();
+
+  /// Whether the contour is closed.
+  ///
+  /// Returns true if the contour ends with a call to [Path.close] (which may
+  /// have been implied when using [Path.addRect]) or if `forceClosed` was
+  /// specified as true in the call to [Path.computeMetrics].  Returns false
+  /// otherwise.
+  bool get isClosed {
+    return _isClosed;
+  }
+
+  // Move to the next contour in the path.
+  //
+  // A path can have a next contour if [Path.moveTo] was called after drawing
+  // began. Return true if one exists, or false.
+  //
+  // This is not exactly congruent with a regular [Iterator.moveNext].
+  // Typically, [Iterator.moveNext] should be called before accessing the
+  // [Iterator.current]. In this case, the [PathMetric] is valid before
+  // calling `_moveNext` - `_moveNext` should be called after the first
+  // iteration is done instead of before.
+  bool _moveNext() {
+    if (_subPathIndex == (_path.subpaths.length - 1)) {
+      return false;
+    }
+    ++_subPathIndex;
+    _buildSegments();
+    return true;
+  }
+
+  void _buildSegments() {
+    _segments = <_PathSegment>[];
+    _isClosed = _forceClosed;
+    double distance = 0.0;
+    int pointIndex = -1;
+    bool haveSeenMoveTo = false;
+    bool haveSeenClose = false;
+    final engine.Subpath subpath = _path.subpaths[_subPathIndex];
+    final List<engine.PathCommand> commands = subpath.commands;
+    double currentX = 0.0, currentY = 0.0;
+    for (engine.PathCommand command in commands) {
+      switch (command.type) {
+        case engine.PathCommandTypes.moveTo:
+          final engine.MoveTo moveTo = command;
+          currentX = moveTo.x;
+          currentY = moveTo.y;
+          _isClosed = true;
+          break;
+        case engine.PathCommandTypes.lineTo:
+          assert(haveSeenMoveTo);
+          final engine.LineTo lineTo = command;
+          final double dx = currentX - lineTo.x;
+          final double dy = currentY - lineTo.y;
+          final double prevDistance = distance;
+          distance += math.sqrt(dx * dx + dy * dy);
+          // As we accumulate distance, we have to check that the result of +=
+          // actually made it larger, since a very small delta might be > 0, but
+          // still have no effect on distance (if distance >>> delta).
+          if (distance > prevDistance) {
+            _segments.add(_PathSegment(engine.PathCommandTypes.lineTo, distance,
+                [currentX, currentY, lineTo.x, lineTo.y]));
+          }
+          break;
+        case engine.PathCommandTypes.cubicCurveTo:
+          assert(haveSeenMoveTo);
+          final engine.CubicCurveTo curve = command;
+          // Compute cubic curve distance.
+          distance = _computeCubicSegments(
+              currentX, currentY, curve.x1, curve.y1, curve.x2, curve.y2, curve.x3, curve.y3, distance, 0, _kMaxTValue);
+          break;
+        case engine.PathCommandTypes.quadraticCurveTo:
+          assert(haveSeenMoveTo);
+          final engine.QuadraticCurveTo quadraticCurveTo = command;
+          // Compute quad curve distance.
+          distance = _computeQuadSegments(
+              currentX,
+              currentY,
+              quadraticCurveTo.x1,
+              quadraticCurveTo.y1,
+              quadraticCurveTo.x2,
+              quadraticCurveTo.y2,
+              distance,
+              0,
+              _kMaxTValue);
+          break;
+        case engine.PathCommandTypes.close:
+          haveSeenClose = true;
+          break;
+        case engine.PathCommandTypes.ellipse:
+          final engine.Ellipse ellipse = command;
+          distance = _computeEllipseSegments(currentX, currentY, ellipse);
+          _isClosed = true;
+          break;
+        case engine.PathCommandTypes.rRect:
+          final engine.RRectCommand rrectCommand = command;
+          final RRect rrect = rrectCommand.rrect;
+          _isClosed = true;
+          break;
+        case engine.PathCommandTypes.rect:
+          final engine.RectCommand rectCommand = command;
+          _isClosed = true;
+          break;
+        default:
+          throw UnimplementedError('Unknown path command $command');
+      }
+    }
+  }
+
+  static bool _tspanBigEnough(int tSpan) => (tSpan >> 10) != 0;
+
+  static bool _cubicTooCurvy(
+      double x0, double y0, double x1, double y1, double x2, double y2,
+      double x3, double y3) {
+    // Measure distance from start-end line at 1/3 and 2/3rds to control
+    // points. If distance is less than _fTolerance we should continue
+    // subdividing curve. Uses approx distance for speed.
+    //
+    // p1 = point 1/3rd between start,end points.
+    final double p1x = (x0 * 2 / 3) + (x3 / 3);
+    final double p1y = (y0 * 2 / 3) + (y3 / 3);
+    if ((p1x - x1).abs() > _fTolerance) {
+      return true;
+    }
+    if ((p1y - y1).abs() > _fTolerance) {
+      return true;
+    }
+    // p2 = point 2/3rd between start,end points.
+    final double p2x = (x0 / 3) + (x3 * 2 / 3);
+    final double p2y = (y0 / 3) + (y3 * 2 / 3);
+    if ((p2x - x2).abs() > _fTolerance) {
+      return true;
+    }
+    if ((p2y - y2).abs() > _fTolerance) {
+      return true;
+    }
+    return false;
+  }
+
+  // Recursively subdivides cubic and adds segments.
+  double _computeCubicSegments(double x0, double y0, double x1, double y1,
+      double x2, double y2, double x3, double y3, double distance, int tMin, int tMax) {
+    if (_tspanBigEnough(tMax - tMin) &&
+        _cubicTooCurvy(x0, y0, x1, y1, x2, y2, x3, y3)) {
+      // Chop cubic into two halves (De Cateljau's algorithm)
+      // See https://en.wikipedia.org/wiki/De_Casteljau%27s_algorithm
+      final double abX = (x0 + x1) / 2;
+      final double abY = (y0 + y1) / 2;
+      final double bcX = (x1 + x2) / 2;
+      final double bcY = (y1 + y2) / 2;
+      final double cdX = (x2 + x3) / 2;
+      final double cdY = (y2 + y3) / 2;
+      final double abcX = (abX + bcX) / 2;
+      final double abcY = (abY + bcY) / 2;
+      final double bcdX = (bcX + cdX) / 2;
+      final double bcdY = (bcY + cdY) / 2;
+      final double abcdX = (abcX + bcdX) / 2;
+      final double abcdY = (abcY + bcdY) / 2;
+      final int tHalf = (tMin + tMax) >> 1;
+      distance =
+          _computeCubicSegments(x0, y0, abX, abY, abcX, abcY, abcdX, abcdY, distance, tMin, tHalf);
+      distance =
+          _computeCubicSegments(abcdX, abcdY, bcdX, bcdY, cdX, cdY, x3, y3, distance, tHalf, tMax);
+    } else {
+      final double dx = x0 - x3;
+      final double dy = y0 - y3;
+      final double startToEndDistance = math.sqrt(dx * dx + dy * dy);
+      final double prevDistance = distance;
+      distance += startToEndDistance;
+      if (distance > prevDistance) {
+        _segments.add(_PathSegment(engine.PathCommandTypes.cubicCurveTo,
+            distance, <double>[x0, y0, x1, y1, x2, y2, x3, y3]));
+      }
+    }
+    return distance;
+  }
+
+  static bool _quadTooCurvy(
+      double x0, double y0, double x1, double y1, double x2, double y2) {
+    // (a/4 + b/2 + c/4) - (a/2 + c/2)  =  -a/4 + b/2 - c/4
+    final double dx = (x1 / 2) - (x0 + x2) / 4;
+    if (dx.abs() > _fTolerance) {
+      return true;
+    }
+    final double dy = (y1 / 2) - (y0 + y2) / 4;
+    if (dy.abs() > _fTolerance) {
+      return true;
+    }
+    return false;
+  }
+
+  double _computeQuadSegments(double x0, double y0, double x1, double y1,
+      double x2, double y2, double distance, int tMin, int tMax) {
+    if (_tspanBigEnough(tMax - tMin) &&
+        _quadTooCurvy(x0, y0, x1, y1, x2, y2)) {
+      final double p01x = (x0 + x1) / 2;
+      final double p01y = (y0 + y1) / 2;
+      final double p12x = (x1 + x2) / 2;
+      final double p12y = (y1 + y2) / 2;
+      final double p012x = (p01x + p12x) / 2;
+      final double p012y = (p01y + p12y) / 2;
+      final int tHalf = (tMin + tMax) >> 1;
+      distance = _computeQuadSegments(
+          x0, y0, p01x, p01y, p012x, p012y, distance, tMin, tHalf);
+      distance = _computeQuadSegments(
+          p012x, p012y, p12x, p12y, x2, y2, distance, tMin, tHalf);
+    } else {
+      final double dx = x0 - x2;
+      final double dy = y0 - y2;
+      final double startToEndDistance = math.sqrt(dx * dx + dy * dy);
+      final double prevDistance = distance;
+      distance += startToEndDistance;
+      if (distance > prevDistance) {
+        _segments.add(_PathSegment(engine.PathCommandTypes.quadraticCurveTo,
+            distance, <double>[x0, y0, x1, y1, x2, y2]));
+      }
+    }
+    return distance;
+  }
+
+  double _computeEllipseSegments(double currentX, double currentY,
+      engine.Ellipse ellipse) {
+    // Convert arc to conics.
+    const int _kMaxConicsForArc = 5;
+    if ((ellipse.radiusX == 0 || ellipse.radiusY == 0) ||
+        (currentX == ellipse.x && currentY == ellipse.y)) {
+      // add line segment from current to ellipse.x/y.
+      return lineDist;
+    }
+
+    final double rx = ellipse.radiusX.abs();
+    final double ry = ellipse.radiusY.abs();
+
+    final double midPointX = (currentX - ellipse.x) / 2;
+    final double midPointY = (currentX - ellipse.x) / 2;
+
+    TODO...
+
   }
 
   @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
+  String toString() => 'PathMetric';
+}
+
+class _PathSegment {
+  _PathSegment(this.segmentType, this.distance, this.points);
+
+  final int segmentType;
+  final double distance;
+  final List<double> points;
+}
+
+/// The geometric description of a tangent: the angle at a point.
+///
+/// See also:
+///  * [PathMetric.getTangentForOffset], which returns the tangent of an offset
+///    along a path.
+class Tangent2 {
+  /// Creates a [Tangent] with the given values.
+  ///
+  /// The arguments must not be null.
+  const Tangent2(this.position, this.vector)
+      : assert(position != null),
+        assert(vector != null);
+
+  /// Creates a [Tangent] based on the angle rather than the vector.
+  ///
+  /// The [vector] is computed to be the unit vector at the given angle,
+  /// interpreted as clockwise radians from the x axis.
+  factory Tangent2.fromAngle(Offset position, double angle) {
+    return Tangent2(position, Offset(math.cos(angle), math.sin(angle)));
+  }
+
+  /// Position of the tangent.
+  ///
+  /// When used with [PathMetric.getTangentForOffset], this represents the
+  /// precise position that the given offset along the path corresponds to.
+  final Offset position;
+
+  /// The vector of the curve at [position].
+  ///
+  /// When used with [PathMetric.getTangentForOffset], this is the vector of the
+  /// curve that is at the given offset along the path (i.e. the direction of
+  /// the curve at [position]).
+  final Offset vector;
+
+  /// The direction of the curve at [position].
+  ///
+  /// When used with [PathMetric.getTangentForOffset], this is the angle of the
+  /// curve that is the given offset along the path (i.e. the direction of the
+  /// curve at [position]).
+  ///
+  /// This value is in radians, with 0.0 meaning pointing along the x axis in
+  /// the positive x-axis direction, positive numbers pointing downward toward
+  /// the negative y-axis, i.e. in a clockwise direction, and negative numbers
+  /// pointing upward toward the positive y-axis, i.e. in a counter-clockwise
+  /// direction.
+  // flip the sign to be consistent with [Path.arcTo]'s `sweepAngle`
+  double get angle => -math.atan2(vector.dy, vector.dx);
 }
