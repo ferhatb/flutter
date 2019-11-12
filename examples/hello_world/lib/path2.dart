@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'engine2.dart' as engine;
 import 'dart:math' as math;
 import 'dart:typed_data';
+const int kPaddingPixels = 1;
 
 /// Determines the winding rule that decides how the interior of a [Path] is
 /// calculated.
@@ -588,89 +589,7 @@ class Path {
   /// Context2D isPointInPath. If performance becomes issue, retaining
   /// RawRecordingCanvas can remove create/remove rootElement cost.
   bool contains(Offset point) {
-    assert(engine.offsetIsValid(point));
-    final int subPathCount = subpaths.length;
-    if (subPathCount == 0) {
-      return false;
-    }
-    final double pointX = point.dx;
-    final double pointY = point.dy;
-    if (subPathCount == 1) {
-      // Optimize for rect/roundrect checks.
-      final engine.Subpath subPath = subpaths[0];
-      if (subPath.commands.length == 1) {
-        final engine.PathCommand cmd = subPath.commands[0];
-        if (cmd is engine.RectCommand) {
-          if (pointY < cmd.y || pointY > (cmd.y + cmd.height)) {
-            return false;
-          }
-          if (pointX < cmd.x || pointX > (cmd.x + cmd.width)) {
-            return false;
-          }
-          return true;
-        } else if (cmd is engine.RRectCommand) {
-          final RRect rRect = cmd.rrect;
-          if (pointY < rRect.top || pointY > rRect.bottom) {
-            return false;
-          }
-          if (pointX < rRect.left || pointX > rRect.right) {
-            return false;
-          }
-          if (pointX < (rRect.left + rRect.tlRadiusX) &&
-              pointY < (rRect.top + rRect.tlRadiusY)) {
-            // Top left corner
-            return _ellipseContains(
-                pointX,
-                pointY,
-                rRect.left + rRect.tlRadiusX,
-                rRect.top + rRect.tlRadiusY,
-                rRect.tlRadiusX,
-                rRect.tlRadiusY);
-          } else if (pointX >= (rRect.right - rRect.trRadiusX) &&
-              pointY < (rRect.top + rRect.trRadiusY)) {
-            // Top right corner
-            return _ellipseContains(
-                pointX,
-                pointY,
-                rRect.right - rRect.trRadiusX,
-                rRect.top + rRect.trRadiusY,
-                rRect.trRadiusX,
-                rRect.trRadiusY);
-          } else if (pointX >= (rRect.right - rRect.brRadiusX) &&
-              pointY >= (rRect.bottom - rRect.brRadiusY)) {
-            // Bottom right corner
-            return _ellipseContains(
-                pointX,
-                pointY,
-                rRect.right - rRect.brRadiusX,
-                rRect.bottom - rRect.brRadiusY,
-                rRect.trRadiusX,
-                rRect.trRadiusY);
-          } else if (pointX < (rRect.left + rRect.blRadiusX) &&
-              pointY >= (rRect.bottom - rRect.blRadiusY)) {
-            // Bottom left corner
-            return _ellipseContains(
-                pointX,
-                pointY,
-                rRect.left + rRect.blRadiusX,
-                rRect.bottom - rRect.blRadiusY,
-                rRect.trRadiusX,
-                rRect.trRadiusY);
-          }
-          return true;
-        }
-      }
-    }
-    final Size size = window.physicalSize / window.devicePixelRatio;
-    _rawRecorder ??= RawRecordingCanvas(size);
-    // Account for the shift due to padding.
-    _rawRecorder.translate(-engine.BitmapCanvas.kPaddingPixels.toDouble(),
-        -engine.BitmapCanvas.kPaddingPixels.toDouble());
-    _rawRecorder.drawPath(
-        this, (Paint()..color = const Color(0xFF000000)).webOnlyPaintData);
-    final bool result = _rawRecorder.ctx.isPointInPath(pointX, pointY);
-    _rawRecorder.dispose();
-    return result;
+    return false;
   }
 
   /// Returns a copy of the path with all the segments of every
@@ -687,14 +606,7 @@ class Path {
   /// Returns a copy of the path with all the segments of every
   /// sub path transformed by the given matrix.
   Path transform(Float64List matrix4) {
-    assert(engine.matrix4IsValid(matrix4));
-    final Path transformedPath = Path();
-    for (final engine.Subpath subPath in subpaths) {
-      for (final engine.PathCommand cmd in subPath.commands) {
-        cmd.transform(matrix4, transformedPath);
-      }
-    }
-    return transformedPath;
+    return null;
   }
 
   /// Computes the bounding rectangle for this path.
@@ -1052,7 +964,7 @@ class Path {
   /// If `forceClosed` is set to true, the contours of the path will be measured
   /// as if they had been closed, even if they were not explicitly closed.
   PathMetrics computeMetrics({bool forceClosed = false}) {
-    return PathMetrics._(this, forceClosed);
+    return null;
   }
 
   /// Detects if path is rounded rectangle and returns rounded rectangle or
