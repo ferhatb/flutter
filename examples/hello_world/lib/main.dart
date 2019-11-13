@@ -2,20 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:js_util' as js_util;
+//import 'dart:js_util' as js_util;
 import 'dart:async';
-import 'dart:html' as html;
+//import 'dart:html' as html;
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
-
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart';
+import 'package:flutter/painting.dart' as painting;
 
-import 'rally/app.dart';
+//import 'rally/app.dart';
+
 void main() {
-  runApp(RallyApp());
+  //runApp(RallyApp());
+  runApp(MyApp());
 }
 
 
@@ -35,62 +37,45 @@ enum BrowserEngine {
   unknown,
 }
 
-/// Lazily initialized current browser engine.
-BrowserEngine _browserEngine;
+///// Lazily initialized current browser engine.
+//BrowserEngine _browserEngine;
+//
+///// Returns the [BrowserEngine] used by the current browser.
+/////
+///// This is used to implement browser-specific behavior.
+//BrowserEngine get browserEngine => _browserEngine ??= _detectBrowserEngine();
+//
+//BrowserEngine _detectBrowserEngine() {
+//  final String vendor = html.window.navigator.vendor;
+//  if (vendor == 'Google Inc.') {
+//    return BrowserEngine.blink;
+//  } else if (vendor == 'Apple Computer, Inc.') {
+//    return BrowserEngine.webkit;
+//  } else if (vendor == '') {
+//    // An empty string means firefox:
+//    // https://developer.mozilla.org/en-US/docs/Web/API/Navigator/vendor
+//    return BrowserEngine.firefox;
+//  }
+//
+//  // Assume blink otherwise, but issue a warning.
+//  print('WARNING: failed to detect current browser engine.');
+//
+//  return BrowserEngine.unknown;
+//}
+//
+//// Feature detection for createImageBitmap.
+//bool _browserFeatureCreateImageBitmap;
+//bool get _browserSupportsCreateImageBitmap =>
+//    _browserFeatureCreateImageBitmap ??
+//        js_util.hasProperty(html.window, 'createImageBitmap');
+//
+//int frameIndex = 0;
+//bool loaded = false;
+//void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
+//
+//}
 
-/// Returns the [BrowserEngine] used by the current browser.
-///
-/// This is used to implement browser-specific behavior.
-BrowserEngine get browserEngine => _browserEngine ??= _detectBrowserEngine();
-
-BrowserEngine _detectBrowserEngine() {
-  final String vendor = html.window.navigator.vendor;
-  if (vendor == 'Google Inc.') {
-    return BrowserEngine.blink;
-  } else if (vendor == 'Apple Computer, Inc.') {
-    return BrowserEngine.webkit;
-  } else if (vendor == '') {
-    // An empty string means firefox:
-    // https://developer.mozilla.org/en-US/docs/Web/API/Navigator/vendor
-    return BrowserEngine.firefox;
-  }
-
-  // Assume blink otherwise, but issue a warning.
-  print('WARNING: failed to detect current browser engine.');
-
-  return BrowserEngine.unknown;
-}
-
-// Feature detection for createImageBitmap.
-bool _browserFeatureCreateImageBitmap;
-bool get _browserSupportsCreateImageBitmap =>
-    _browserFeatureCreateImageBitmap ??
-        js_util.hasProperty(html.window, 'createImageBitmap');
-
-int frameIndex = 0;
-bool loaded = false;
-void imageLoaded(ImageInfo imageInfo, bool synchronousCall) {
-  if (loaded) return;
-  loaded = true;
-  String src =
-      'https://images.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png';
-      //'assets/lib/animated_images/animated_flutter_lgtm.gif';
-
-      html.HttpRequest.request(src,
-      responseType: 'arraybuffer').then((html.HttpRequest req) {
-    final ByteBuffer buffer = req.response;
-    final ByteData byteData = ByteData.view(buffer);
-    _imageLoaded2(byteData);
-  }, onError: (dynamic error) {
-    // CORS error.
-    final html.ImageElement imageElement = html.ImageElement();
-    imageElement.src = src;
-    imageElement.decode().then((dynamic _) {
-
-    });
-  });
-}
-
+/*
 void _imageLoaded2(ByteData byteData) {
   final GifCodec gif = GifCodec(byteData);
   gif.decode();
@@ -706,6 +691,9 @@ class _GifFrame {
   }
 }
 
+
+*/
+
 class MyApp extends StatefulWidget {
   @override
   State<StatefulWidget> createState() => MyAppState();
@@ -713,17 +701,51 @@ class MyApp extends StatefulWidget {
 
 class MyAppState extends State<MyApp> {
   double _startAngle = 0, _endAngle = 360, _rotation = 0;
+  ui.Image image;
+
+  Future <Null> init() async {
+    image = await _loadImage('lib/animated_images/sample_image.jpg');
+  }
+
+  Future<ui.Image> _loadImage(String imageAssetPath) async {
+    final ByteData data = await rootBundle.load(imageAssetPath);
+    final Completer<ui.Image> completer = Completer();
+    ui.decodeImageFromList(Uint8List.view(data.buffer), (ui.Image img) {
+      return completer.complete(img);
+    });
+    return completer.future;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final Image image = Image.asset('lib/animated_images/animated_flutter_lgtm.gif');
-    final ImageStream stream = image.image.resolve(const ImageConfiguration());
-    stream.addListener(const ImageStreamListener(imageLoaded));
+//    final Image image = Image.asset('lib/animated_images/animated_flutter_lgtm.gif');
+//    final ImageStream stream = image.image.resolve(const ImageConfiguration());
+//    stream.addListener(const ImageStreamListener(imageLoaded));
 
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       home: Column(children: <Widget>[
         Center(
             child: Column(children: <Widget>[
+            Container(
+              width: 400,
+              height: 200,
+              color: Colors.white,
+              child: Text('testpaint')
+            ),
+            Container(
+            decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+//          backgroundBlendMode: BlendMode.color,
+//          image: DecorationImage(
+//            image: AssetImage('lib/animated_images/sample_image.jpg'),
+//            fit: BoxFit.fitWidth,
+//          ),
+
+        ),
+                child: Container(width: 200, height: 100, color: Colors.white,
+                    child: CustomPaint(painter: MyPainter(this, image)))
+            ),
 //              Image.asset('lib/animated_images/giphy1.gif'),
 //              Text('AAA'),
 //              Image.asset('lib/animated_images/animated_flutter_lgtm.gif'),
@@ -739,9 +761,12 @@ class MyAppState extends State<MyApp> {
 }
 
 class MyPainter extends CustomPainter {
-  MyPainter(this.myappState);
+  MyPainter(this.myappState, this.image);
 
   final MyAppState myappState;
+  ui.Image image;
+
+
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -756,18 +781,26 @@ class MyPainter extends CustomPainter {
 //    final Path path = Path();
 //    path.addRect(paintRect);
 //    canvas.drawPath(path, paint);
-
+    canvas.drawColor(Colors.white, BlendMode.srcOver);
     canvas.drawCircle(const Offset(220.0, 220.0), 150.0, Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color.fromARGB(128, 255, 0, 0));
+      ..color = const Color.fromARGB(128, 255, 0, 0)
+      ..blendMode = BlendMode.difference
+    );
 
     canvas.drawCircle(const Offset(380.0, 220.0), 150.0, Paint()
       ..style = PaintingStyle.fill
+      ..blendMode = BlendMode.color
       ..color = const Color.fromARGB(128, 0, 255, 0));
 
     canvas.drawCircle(const Offset(300.0, 420.0), 150.0, Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color.fromARGB(128, 0, 0, 255));
+      ..color = const Color.fromARGB(128, 255, 0, 0)
+    );
+    if (image != null) {
+      canvas.drawImage(image, const ui.Offset(0, 0), Paint());
+    }
+
 
 //    final Int32List colors = Int32List.fromList(<int>[
 //      0xFFFF0000, 0xFF00FF00, 0xFF0000FF,
@@ -779,15 +812,15 @@ class MyPainter extends CustomPainter {
 //        positions , colors: colors);
 //    canvas.drawVertices(vertices, BlendMode.lighten, Paint());
 
-    final Int32List colors = Int32List.fromList(<int>[
-      0xFFFF0000, 0xFF00FF00, 0xFF0000FF,
-      0xFFFF0000, 0xFF00FF00, 0xFF0000FF]);
-    final ui.Vertices vertices = ui.Vertices.raw(VertexMode.triangleFan,
-        Float32List.fromList([
-          150.0, 150.0, 20.0, 10.0, 80.0, 20.0,
-          220.0, 15.0, 280.0, 30.0, 300.0, 420.0
-        ]), colors: colors);
-    canvas.drawVertices(vertices, BlendMode.srcOver, Paint());
+//    final Int32List colors = Int32List.fromList(<int>[
+//      0xFFFF0000, 0xFF00FF00, 0xFF0000FF,
+//      0xFFFF0000, 0xFF00FF00, 0xFF0000FF]);
+//    final ui.Vertices vertices = ui.Vertices.raw(VertexMode.triangleFan,
+//        Float32List.fromList([
+//          150.0, 150.0, 20.0, 10.0, 80.0, 20.0,
+//          220.0, 15.0, 280.0, 30.0, 300.0, 420.0
+//        ]), colors: colors);
+//    canvas.drawVertices(vertices, BlendMode.srcOver, Paint());
   }
 
   @override
