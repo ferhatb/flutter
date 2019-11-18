@@ -23,8 +23,6 @@ class MyPainter extends CustomPainter {
     const double ry = 50;
     const double cx = 150;
     const double cy  = 100;
-    print('startAngle = $startAngle');
-    print('endAngle = $endAngle');
     double startRad = startAngle * math.pi / 180.0;
     double endRad = endAngle * math.pi / 180.0;
 
@@ -32,7 +30,6 @@ class MyPainter extends CustomPainter {
     final double startY = cy + (ry * math.sin(startRad));
     final double endX = cx + (rx * math.cos(endRad));
     final double endY = cy + (ry * math.sin(endRad));
-    print('endX,endY = $endX, $endY');
 
     final bool clockwise = endAngle > startAngle;
     final bool largeArc = (endAngle - startAngle).abs() > 180.0;
@@ -65,8 +62,8 @@ class MyPainter extends CustomPainter {
     );
 
 
-    PathMetric2 metric = PathMetric2._(newPath, false, canvas);
-    final List<_PathSegment> segments = metric._segments;
+    PathMetric2 metrics2 = PathMetric2._(newPath, false, canvas);
+    final List<_PathSegment> segments = metrics2._segments;
     final Paint redFill = Paint()
       ..style = PaintingStyle.fill
       ..color = Colors.green.withOpacity(0.5);
@@ -87,7 +84,35 @@ class MyPainter extends CustomPainter {
         canvas.drawCircle(Offset(seg.points[4], seg.points[5]), 2.0, greenFill);
       }
     }
-    
+
+    final engine.PathMetrics metrics = path.computeMetrics();
+    engine.ParagraphBuilder b = engine.ParagraphBuilder(engine.ParagraphStyle());
+    StringBuffer sb = StringBuffer();
+//    int index = 0;
+//    for (engine.PathMetric m in metrics) {
+//      sb.writeln('${index++} : length = ${m.length}');
+//    }
+//
+//    sb.writeln('web : length = ${metrics2.length}');
+
+
+    Path testPath = Path();
+    if (testPath.computeMetrics().isEmpty) {
+      sb.writeln('testcase: computeMetrics returns isEmpty');
+    } else {
+      engine.PathMetric testMetric = testPath
+          .computeMetrics()
+          .first;
+      sb.writeln('testcase : length = ${testMetric.length}');
+    }
+
+
+    b.pushStyle(engine.TextStyle(color:Colors.black));
+    b.addText(sb.toString());
+    engine.Paragraph p = b.build();
+    p.layout(engine.ParagraphConstraints(width: 700.0));
+    canvas.drawParagraph(p, const Offset(0, 250));
+
   }
 
   @override
@@ -246,6 +271,7 @@ class PathMetric2 {
 
   final path2.Path _path;
   final bool _forceClosed;
+  double _contourLength;
 
   final Canvas canvas;
 
@@ -257,7 +283,7 @@ class PathMetric2 {
   List<_PathSegment> _segments;
 
   /// Return the total length of the current contour.
-  double get length => throw UnimplementedError();
+  double get length => _contourLength;
 
   /// Computes the position of hte current contour at the given offset, and the
   /// angle of the path at that point.
@@ -429,6 +455,7 @@ class PathMetric2 {
           throw UnimplementedError('Unknown path command $command');
       }
     }
+    _contourLength = distance;
   }
 
   static bool _tspanBigEnough(int tSpan) => (tSpan >> 10) != 0;

@@ -1064,10 +1064,10 @@ abstract class RRectRenderer {
   // rounded rectangle (after the corner).
   // TODO(het): Confirm that this is the end point in Flutter for RRect
 
-  void render(ui.RRect inputRRect,
+  void render(RRect inputRRect,
       {bool startNewPath = true, bool reverse = false}) {
     // Ensure border radius curves never overlap
-    final ui.RRect rrect = inputRRect.scaleRadii();
+    final RRect rrect = inputRRect.scaleRadii();
 
     double left = rrect.left;
     double right = rrect.right;
