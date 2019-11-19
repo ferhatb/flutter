@@ -36,16 +36,16 @@ class MyPainter extends CustomPainter {
     final bool largeArc = (endAngle - startAngle).abs() > 180.0;
     final Path path = Path()
       ..moveTo(cx, cy)
-      ..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
-//      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
-//          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
+      //..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
+      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
+          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
 
     final path2.Path newPath = path2.Path()
-      ..moveTo(cx, cy)
-      ..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
-//      ..moveTo(startX, startY)
-//      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
-//          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
+//      ..moveTo(cx, cy)
+//      ..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
+      ..moveTo(startX, startY)
+      ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
+          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
 
 
     canvas.drawPath(path,
@@ -84,12 +84,67 @@ class MyPainter extends CustomPainter {
       }
     }
 
+    Path path1 = Path();
+    {
+      const double rx = 100;
+      const double ry = 50;
+      const double cx = 150;
+      const double cy = 100;
+      const double startAngle = 0.0;
+      const double endAngle = 270.0;
+      double startRad = startAngle * math.pi / 180.0;
+      double endRad = endAngle * math.pi / 180.0;
+
+      final double startX = cx + (rx * math.cos(startRad));
+      final double startY = cy + (ry * math.sin(startRad));
+      final double endX = cx + (rx * math.cos(endRad));
+      final double endY = cy + (ry * math.sin(endRad));
+
+      const bool clockwise = endAngle > startAngle;
+      final bool largeArc = (endAngle - startAngle).abs() > 180.0;
+      path1 = Path()
+//        ..moveTo(startX, startY)
+//        ..arcToPoint(
+//            Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
+//            clockwise: clockwise, largeArc: largeArc, rotation: 0.0);
+          ..addRRect(RRect.fromLTRBR(20, 30, 220, 130, Radius.elliptical(8, 4)));
+
+//    path.arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
+//          clockwise: clockwise, largeArc: largeArc, rotation: rotation);
+
+      final List<double> lengths = computeLengths(path1);
+      StringBuffer sb = StringBuffer();
+      if (lengths == null || lengths.isEmpty) {
+        sb.writeln('No length returned');
+      }
+      for (int i = 0; i < lengths.length; i++) {
+        sb.writeln('$i: ${lengths[i]}');
+      }
+      final engine.ParagraphStyle paraStyle = engine.ParagraphStyle(
+          fontSize: 40.0);
+      final engine.ParagraphBuilder paraBuilder = engine.ParagraphBuilder(
+          paraStyle);
+      paraBuilder.pushStyle(engine.TextStyle(color: Colors.black));
+      paraBuilder.addText(sb.toString());
+      final engine.Paragraph paragraph = paraBuilder.build();
+      paragraph.layout(const engine.ParagraphConstraints(width: 600.0));
+      canvas.drawParagraph(paragraph, const Offset(20, 0));
+    }
   }
 
   @override
   bool shouldRepaint(CustomPainter oldDelegate) {
     return true;
   }
+}
+
+List<double> computeLengths(Path path) {
+  engine.PathMetrics pathMetrics = path.computeMetrics();
+  final List<double> lengths = <double>[];
+  for (engine.PathMetric metric in pathMetrics) {
+    lengths.add(metric.length);
+  }
+  return lengths;
 }
 
 class MyApp extends StatelessWidget {
