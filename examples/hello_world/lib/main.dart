@@ -23,9 +23,8 @@ class MyPainter extends CustomPainter {
     const double ry = 50;
     const double cx = 150;
     const double cy  = 100;
-
-    double startRad = startAngle *math.pi / 180.0;
-    double endRad = endAngle*math.pi / 180.0;
+    double startRad = startAngle * math.pi / 180.0;
+    double endRad = endAngle * math.pi / 180.0;
 
     final double startX = cx + (rx * math.cos(startRad));
     final double startY = cy + (ry * math.sin(startRad));
@@ -35,14 +34,24 @@ class MyPainter extends CustomPainter {
     final bool clockwise = endAngle > startAngle;
     final bool largeArc = (endAngle - startAngle).abs() > 180.0;
     final Path path = Path()
+<<<<<<< HEAD
       ..moveTo(cx, cy)
       //..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
+=======
+//      ..moveTo(cx, cy)
+//      ..cubicTo(cx + 20, cy + 50, cx + 100, cy + 50, cx + 200, cy - 20);
+      ..moveTo(startX, startY)
+>>>>>>> 82e8b340d31574534de3642afd45595bf60fc809
       ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
           clockwise: clockwise, largeArc: largeArc, rotation: rotation);
 
     final path2.Path newPath = path2.Path()
 //      ..moveTo(cx, cy)
+<<<<<<< HEAD
 //      ..quadraticBezierTo(cx + 100, cy + 50, cx + 200, cy - 20);
+=======
+//      ..cubicTo(cx + 20, cy + 50, cx + 100, cy + 50, cx + 200, cy - 20);
+>>>>>>> 82e8b340d31574534de3642afd45595bf60fc809
       ..moveTo(startX, startY)
       ..arcToPoint(Offset(endX, endY), radius: const Radius.elliptical(rx, ry),
           clockwise: clockwise, largeArc: largeArc, rotation: rotation);
@@ -62,14 +71,15 @@ class MyPainter extends CustomPainter {
     );
 
 
-    PathMetric2 metric = PathMetric2._(newPath, false);
-    final List<_PathSegment> segments = metric._segments;
+    PathMetric2 metrics2 = PathMetric2._(newPath, false, canvas);
+    final List<_PathSegment> segments = metrics2._segments;
     final Paint redFill = Paint()
       ..style = PaintingStyle.fill
-      ..color = Colors.red;
+      ..color = Colors.green.withOpacity(0.5);
     final Paint greenFill = Paint()
       ..style = PaintingStyle.fill
-      ..color = Colors.green;
+      ..color = Colors.green.withOpacity(0.5);
+
     for (int i = 0; i < segments.length; i++) {
       final _PathSegment seg = segments[i];
       canvas.drawCircle(Offset(seg.points[0], seg.points[1]), 2.0, redFill);
@@ -84,6 +94,7 @@ class MyPainter extends CustomPainter {
       }
     }
 
+<<<<<<< HEAD
     Path path1 = Path();
     {
       const double rx = 100;
@@ -130,6 +141,36 @@ class MyPainter extends CustomPainter {
       paragraph.layout(const engine.ParagraphConstraints(width: 600.0));
       canvas.drawParagraph(paragraph, const Offset(20, 0));
     }
+=======
+    final engine.PathMetrics metrics = path.computeMetrics();
+    engine.ParagraphBuilder b = engine.ParagraphBuilder(engine.ParagraphStyle());
+    StringBuffer sb = StringBuffer();
+//    int index = 0;
+//    for (engine.PathMetric m in metrics) {
+//      sb.writeln('${index++} : length = ${m.length}');
+//    }
+//
+//    sb.writeln('web : length = ${metrics2.length}');
+
+
+    Path testPath = Path();
+    if (testPath.computeMetrics().isEmpty) {
+      sb.writeln('testcase: computeMetrics returns isEmpty');
+    } else {
+      engine.PathMetric testMetric = testPath
+          .computeMetrics()
+          .first;
+      sb.writeln('testcase : length = ${testMetric.length}');
+    }
+
+
+    b.pushStyle(engine.TextStyle(color:Colors.black));
+    b.addText(sb.toString());
+    engine.Paragraph p = b.build();
+    p.layout(engine.ParagraphConstraints(width: 700.0));
+    canvas.drawParagraph(p, const Offset(0, 250));
+
+>>>>>>> 82e8b340d31574534de3642afd45595bf60fc809
   }
 
   @override
@@ -239,8 +280,8 @@ class _MyHomePageState extends State<MyHomePage> {
 /// When iterating across a [PathMetrics]' contours, the [PathMetric] objects
 /// are only valid until the next one is obtained.
 class PathMetrics2 extends collection.IterableBase<PathMetric2> {
-  PathMetrics2._(path2.Path path, bool forceClosed)
-      : _iterator = PathMetricIterator2._(PathMetric2._(path, forceClosed));
+  PathMetrics2._(path2.Path path, bool forceClosed, Canvas canvas)
+      : _iterator = PathMetricIterator2._(PathMetric2._(path, forceClosed, canvas));
 
   final Iterator<PathMetric2> _iterator;
 
@@ -289,8 +330,17 @@ const double _fTolerance = 0.5;
 /// https://github.com/google/skia/blob/master/src/core/SkContourMeasure.cpp
 /// to maintain consistency with native platforms.
 class PathMetric2 {
+
+  /// Create a new empty [Path] object.
+  PathMetric2._(this._path, this._forceClosed, this.canvas) {
+    _buildSegments();
+  }
+
   final path2.Path _path;
   final bool _forceClosed;
+  double _contourLength;
+
+  final Canvas canvas;
 
   // If the contour ends with a call to [Path.close] (which may
   // have been implied when using [Path.addRect])
@@ -299,13 +349,8 @@ class PathMetric2 {
   int _subPathIndex = 0;
   List<_PathSegment> _segments;
 
-  /// Create a new empty [Path] object.
-  PathMetric2._(this._path, this._forceClosed) {
-    _buildSegments();
-  }
-
   /// Return the total length of the current contour.
-  double get length => throw UnimplementedError();
+  double get length => _contourLength;
 
   /// Computes the position of hte current contour at the given offset, and the
   /// angle of the path at that point.
@@ -377,6 +422,21 @@ class PathMetric2 {
     final engine.Subpath subpath = _path.subpaths[_subPathIndex];
     final List<engine.PathCommand> commands = subpath.commands;
     double currentX = 0.0, currentY = 0.0;
+    final Function lineToHandler = (double x, double y) {
+      final double dx = currentX - x;
+      final double dy = currentY - y;
+      final double prevDistance = distance;
+      distance += math.sqrt(dx * dx + dy * dy);
+      // As we accumulate distance, we have to check that the result of +=
+      // actually made it larger, since a very small delta might be > 0, but
+      // still have no effect on distance (if distance >>> delta).
+      if (distance > prevDistance) {
+        _segments.add(_PathSegment(engine.PathCommandTypes.lineTo, distance,
+            [currentX, currentY, x, y]));
+      }
+      currentX = x;
+      currentY = y;
+    };
     for (engine.PathCommand command in commands) {
       switch (command.type) {
         case engine.PathCommandTypes.moveTo:
@@ -389,17 +449,7 @@ class PathMetric2 {
         case engine.PathCommandTypes.lineTo:
           assert(haveSeenMoveTo);
           final engine.LineTo lineTo = command;
-          final double dx = currentX - lineTo.x;
-          final double dy = currentY - lineTo.y;
-          final double prevDistance = distance;
-          distance += math.sqrt(dx * dx + dy * dy);
-          // As we accumulate distance, we have to check that the result of +=
-          // actually made it larger, since a very small delta might be > 0, but
-          // still have no effect on distance (if distance >>> delta).
-          if (distance > prevDistance) {
-            _segments.add(_PathSegment(engine.PathCommandTypes.lineTo, distance,
-                [currentX, currentY, lineTo.x, lineTo.y]));
-          }
+          lineToHandler(lineTo.x, lineTo.y);
           break;
         case engine.PathCommandTypes.cubicCurveTo:
           assert(haveSeenMoveTo);
@@ -437,16 +487,42 @@ class PathMetric2 {
         case engine.PathCommandTypes.rRect:
           final engine.RRectCommand rrectCommand = command;
           final RRect rrect = rrectCommand.rrect;
+          RRectMetricsRenderer(
+              moveToCallback: (double x, double y) {
+                currentX = x;
+                currentY = y;
+                _isClosed = true;
+                haveSeenMoveTo = true;
+              },
+              lineToCallback: (double x, double y) {
+                lineToHandler(x, y);
+              },
+              ellipseCallback: (double centerX, double centerY, double radiusX, double radiusY, double rotation, double startAngle, double endAngle, bool antiClockwise) {
+                distance = _computeEllipseSegments(currentX, currentY, distance,
+                    centerX, centerY, startAngle, endAngle, rotation,
+                    radiusX, radiusY, antiClockwise);
+              }).render(rrect);
           _isClosed = true;
           break;
         case engine.PathCommandTypes.rect:
           final engine.RectCommand rectCommand = command;
+          final double x = rectCommand.x;
+          final double y = rectCommand.y;
+          final double width = rectCommand.width;
+          final double height = rectCommand.height;
+          currentX = x;
+          currentY = y;
+          lineToHandler(x + width, y);
+          lineToHandler(x + width, y + height);
+          lineToHandler(x, y + height);
+          lineToHandler(x, y);
           _isClosed = true;
           break;
         default:
           throw UnimplementedError('Unknown path command $command');
       }
     }
+    _contourLength = distance;
   }
 
   static bool _tspanBigEnough(int tSpan) => (tSpan >> 10) != 0;
@@ -563,12 +639,12 @@ class PathMetric2 {
   // Create segments by converting arc to cubics.
   // See http://www.w3.org/TR/SVG/implnote.html#ArcConversionEndpointToCenter.
   double _computeEllipseSegments(double startX, double startY,
-      double distance, double endX, double endY,
+      double distance, double cx, double cy,
       double startAngle, double endAngle,
       double rotation, double radiusX, double radiusY, bool anticlockwise) {
-    // Convert arc to conics.
-    const int _kMaxConicsForArc = 5;
 
+    final double endX = cx + (radiusX * math.cos(endAngle));
+    final double endY = cy + (radiusY * math.sin(endAngle));
     // Check for http://www.w3.org/TR/SVG/implnote.html#ArcOutOfRangeParameters
     // Treat as line segment from start to end if arc has zero radii.
     // If start and end point are the same treat as zero length path.
@@ -576,75 +652,16 @@ class PathMetric2 {
         (startX == endX && startY == endY)) {
       return distance;
     }
-
     final double rxAbs = radiusX.abs();
     final double ryAbs = radiusY.abs();
 
-    final double midPointDistX = (startX - endX) / 2;
-    final double midPointDistY = (startY - endY) / 2;
+    final double theta1 = startAngle;
+    final double theta2 = endAngle;
+    final double thetaArc = theta2 - theta1;
 
-    // Rotate midpoint back by -startAngle.
-    double cosAngle = math.cos(-startAngle);
-    double sinAngle = math.sin(-startAngle);
-    final double midPointX = midPointDistX * cosAngle - midPointDistY * sinAngle;
-    final double midPointY = midPointDistX * sinAngle + midPointDistY * cosAngle;
-
-    final double rxSquare = rxAbs * rxAbs;
-    final double rySquare = ryAbs * ryAbs;
-    final double endXSquare = midPointX * midPointX;
-    final double endYSquare = midPointY * midPointY;
-
-    // Scale radii if it is not big enough to draw arc.
-    // http://www.w3.org/TR/SVG/implnote.html#ArcCorrectionOutOfRangeRadii
-    final double radiiScale = endXSquare / rxSquare + endYSquare / rySquare;
-    bool doScale = (radiiScale > 1.0);
-    final double rx = doScale ? rxAbs * math.sqrt(radiiScale) : rxAbs;
-    final double ry = doScale ? ryAbs * math.sqrt(radiiScale) : ryAbs;
-
-    // Now take start and end point and reverse transform by scaling down
-    // by rx,ry and rotating -startAngle.
-    final double scaledStartX = (startX / rx);
-    final double scaledStartY = (startY / ry);
-    final double point1X = scaledStartX * cosAngle - scaledStartY * sinAngle;
-    final double point1Y = scaledStartX * sinAngle + scaledStartY * cosAngle;
-    final double scaledEndX = (endX / rx);
-    final double scaledEndY = (endY / ry);
-    final double point2X = scaledEndX * cosAngle - scaledEndY * sinAngle;
-    final double point2Y = scaledEndX * sinAngle + scaledEndY * cosAngle;
-
-    double deltaX = point2X - point1X;
-    double deltaY = point2Y - point1Y;
-
-    final double d = deltaX * deltaX + deltaY * deltaY;
-    double scaleFactor = math.sqrt(math.max(1 /d - 0.25, 0.0));
-
-    bool isLargeArc = (endAngle - startAngle).abs() > math.pi;
-    if (isLargeArc == anticlockwise) {
-      scaleFactor = -scaleFactor;
-    }
-    deltaX *= scaleFactor;
-    deltaY *= scaleFactor;
-
-    double centerPointX = (point1X + point2X) / 2;
-    double centerPointY = (point1Y + point2Y) / 2;
-
-    centerPointX -= deltaY;
-    centerPointY += deltaX;
-
-    final double theta1 = math.atan2(point1Y - centerPointY, point1X - centerPointX);
-    final double theta2 = math.atan2(point2Y - centerPointY, point2X - centerPointX);
-
-    double thetaArc = theta2 - theta1;
-    if (thetaArc < 0 && anticlockwise) {
-      thetaArc += math.pi * 2;
-    } else if (thetaArc > 0 && !anticlockwise) {
-      thetaArc -= math.pi * 2;
-    }
-
-    // Add 0.01f aince atan2 implementations are sometimes not exact enough.
-    // This reduces number of segments.
-    int numSegments = (thetaArc / ((math.pi / 2.0) + 0.01)).abs().ceil();
-
+    // Add 0.01f since atan2 in arcToPoint to ellipse might not be exact enough.
+    // (Reduces number of segments).
+    final int numSegments = (thetaArc / ((math.pi / 2.0) + 0.01)).abs().ceil();
     double x0 = startX;
     double y0 = startY;
     for (int segmentIndex = 0; segmentIndex < numSegments; segmentIndex++) {
@@ -660,14 +677,16 @@ class PathMetric2 {
       final double cosEndTheta = math.cos(endTheta);
 
       // Compute cubic segment start, control point and end (target).
-      final double p1x = (cosStartTheta - t * sinStartTheta) + centerPointX;
-      final double p1y = (sinStartTheta + t * cosStartTheta) + centerPointY;
-      final double targetPointX = cosEndTheta + centerPointX;
-      final double targetPointY = sinEndTheta + centerPointY;
-      final double p2x = targetPointX + (t * sinEndTheta);
-      final double p2y = targetPointY + (-t * cosEndTheta);
+      final double p1x = rxAbs * (cosStartTheta - t * sinStartTheta) + cx;
+      final double p1y = ryAbs * (sinStartTheta + t * cosStartTheta) + cy;
+      final double targetPointX = rxAbs * cosEndTheta + cx;
+      final double targetPointY = ryAbs * sinEndTheta + cy;
+      final double p2x = targetPointX + rxAbs * (t * sinEndTheta);
+      final double p2y = targetPointY + ryAbs * (-t * cosEndTheta);
 
       distance = _computeCubicSegments(x0, y0, p1x, p1y, p2x, p2y, targetPointX, targetPointY, distance, 0, _kMaxTValue);
+      x0 = targetPointX;
+      y0 = targetPointY;
     }
     return distance;
   }
@@ -731,4 +750,27 @@ class Tangent2 {
   /// direction.
   // flip the sign to be consistent with [Path.arcTo]'s `sweepAngle`
   double get angle => -math.atan2(vector.dy, vector.dx);
+}
+
+typedef RRectRendererEllipseCallback = void Function(double centerX, double centerY, double radiusX, double radiusY, double rotation, double startAngle, double endAngle, bool antiClockwise);
+typedef RRectRendererCallback = void Function(double x, double y);
+
+class RRectMetricsRenderer extends path2.RRectRenderer {
+  RRectMetricsRenderer({this.moveToCallback, this.lineToCallback, this.ellipseCallback});
+
+  final RRectRendererEllipseCallback ellipseCallback;
+  final RRectRendererCallback lineToCallback;
+  final RRectRendererCallback moveToCallback;
+  @override
+  void beginPath() {}
+
+  @override
+  void ellipse(double centerX, double centerY, double radiusX, double radiusY, double rotation, double startAngle, double endAngle, bool antiClockwise) => ellipseCallback(
+      centerX, centerY, radiusX, radiusY, rotation, startAngle, endAngle, antiClockwise);
+
+  @override
+  void lineTo(double x, double y) => lineToCallback(x, y);
+
+  @override
+  void moveTo(double x, double y) => moveToCallback(x, y);
 }
