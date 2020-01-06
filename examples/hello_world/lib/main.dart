@@ -24,7 +24,6 @@ class MyAppState extends State {
 
   ui.Image testImage;
 
-
   @override
   Widget build(BuildContext context) {
     return Center(
