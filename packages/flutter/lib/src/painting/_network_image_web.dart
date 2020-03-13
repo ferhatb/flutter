@@ -37,16 +37,32 @@ class NetworkImage extends image_provider.ImageProvider<image_provider.NetworkIm
 
   @override
   ImageStreamCompleter load(image_provider.NetworkImage key, image_provider.DecoderCallback decode) {
+    // Ownership of this controller is handed off to [_loadAsync]; it is that
+    // method's responsibility to close the controller's stream when the image
+    // has been loaded or an error is thrown.
+    final StreamController<ImageChunkEvent> chunkEvents = StreamController<ImageChunkEvent>();
+
     return MultiFrameImageStreamCompleter(
-      codec: _loadAsync(key as NetworkImage, decode),
+      chunkEvents: chunkEvents.stream,
+      codec: _loadAsync(key as NetworkImage, decode, chunkEvents),
       scale: key.scale,
-      informationCollector: () {
+      informationCollector: _imageStreamInformationCollector(key)
+    );
+  }
+
+  InformationCollector _imageStreamInformationCollector(
+      image_provider.NetworkImage key) {
+    InformationCollector collector;
+    assert(() {
+      collector = () {
         return <DiagnosticsNode>[
           DiagnosticsProperty<image_provider.ImageProvider>('Image provider', this),
           DiagnosticsProperty<NetworkImage>('Image key', key as NetworkImage),
         ];
-      },
-    );
+      };
+      return true;
+    }());
+    return collector;
   }
 
   // TODO(garyq): We should eventually support custom decoding of network images on Web as
@@ -55,13 +71,16 @@ class NetworkImage extends image_provider.ImageProvider<image_provider.NetworkIm
   // Web does not support decoding network images to a specified size. The decode parameter
   // here is ignored and the web-only `ui.webOnlyInstantiateImageCodecFromUrl` will be used
   // directly in place of the typical `instantiateImageCodec` method.
-  Future<ui.Codec> _loadAsync(NetworkImage key, image_provider.DecoderCallback decode) {
+  Future<ui.Codec> _loadAsync(NetworkImage key, image_provider.DecoderCallback decode,
+      StreamController<ImageChunkEvent> chunkEvents) {
     assert(key == this);
 
     final Uri resolved = Uri.base.resolve(key.url);
     // This API only exists in the web engine implementation and is not
     // contained in the analyzer summary for Flutter.
-    return ui.webOnlyInstantiateImageCodecFromUrl(resolved) as Future<ui.Codec>; // ignore: undefined_function
+    return ui.webOnlyInstantiateImageCodecFromUrl(resolved, (int bytes, int total) {
+      chunkEvents.add(ImageChunkEvent(cumulativeBytesLoaded: bytes, expectedTotalBytes: total));
+    }) as Future<ui.Codec>; // ignore: undefined_function
   }
 
   @override
