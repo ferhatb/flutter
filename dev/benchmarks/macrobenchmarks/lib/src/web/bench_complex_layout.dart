@@ -29,12 +29,13 @@ class ComplexLayoutApp extends StatefulWidget {
 }
 
 const String appTitle = 'Advanced Layout4';
+const double distance = 2000;
 
 class ComplexLayoutAppState extends State<ComplexLayoutApp> {
   double offset;
-  static const double distance = 1000;
-  static const Duration stepDuration = Duration(seconds: 1);
+  static const Duration stepDuration = Duration(seconds: 2);
   ScrollController scrollController;
+  int viewIndex = 0;
 
   @override
   void initState() {
@@ -42,6 +43,16 @@ class ComplexLayoutAppState extends State<ComplexLayoutApp> {
 
     scrollController = ScrollController();
     offset = 0;
+
+    scrollController.addListener(() {
+      if (scrollController.offset == distance * 2) {
+        offset = 0;
+        setState(() {
+          scrollController.jumpTo(0);
+          viewIndex = (viewIndex + 1) % 2;
+        });
+      }
+    });
 
     // Without the timer the animation doesn't begin.
     Timer.run(() async {
@@ -52,6 +63,11 @@ class ComplexLayoutAppState extends State<ComplexLayoutApp> {
           duration: stepDuration,
         );
         offset += distance;
+        await scrollController.animateTo(
+          offset + distance,
+          curve: Curves.linear,
+          duration: stepDuration,
+        );
       }
     });
   }
@@ -61,7 +77,11 @@ class ComplexLayoutAppState extends State<ComplexLayoutApp> {
     return MaterialApp(
       theme: lightTheme ? ThemeData.light() : ThemeData.dark(),
       title: appTitle,
-      home: scrollMode == ScrollMode.complex ? ComplexLayout(scrollController) : const TileScrollLayout());
+      home: Stack(children: <Widget>[
+        if (viewIndex == 0) TileScrollLayout(scrollController),
+        if (viewIndex == 1) ComplexLayout(scrollController),
+      ]),
+    );
   }
 
   bool _lightTheme = true;
@@ -87,26 +107,60 @@ class ComplexLayoutAppState extends State<ComplexLayoutApp> {
   }
 }
 
-class TileScrollLayout extends StatelessWidget {
-  const TileScrollLayout({ Key key }) : super(key: key);
+class TileScrollLayout extends StatefulWidget {
+  const TileScrollLayout(this.scrollController);
+  final ScrollController scrollController;
+
+  @override
+  State<StatefulWidget> createState() {
+    return TileScrollLayoutState(scrollController);
+  }
+}
+
+class TileScrollLayoutState extends State<TileScrollLayout> {
+  TileScrollLayoutState(this.scrollController);
+  final ScrollController scrollController;
+  double size = 400;
+  void Function() _scrollListener;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollListener = () {
+      setState(() {
+        size = 400 + (100 * (scrollController.offset / distance));
+        print(size);
+      });
+    };
+    scrollController.addListener(_scrollListener);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    scrollController.removeListener(_scrollListener);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Tile Scrolling Layout')),
-      body: ListView.builder(
-        key: const Key('tiles-scroll'),
-        itemCount: 200,
-        itemBuilder: (BuildContext context, int index) {
-          return Padding(
-            padding: const EdgeInsets.all(5.0),
-            child: Material(
-              elevation: (index % 5 + 1).toDouble(),
-              color: Colors.white,
-              child: IconBar(),
-            ),
-          );
-        },
+      body: SizedBox(width: size, height: size,
+        child: ListView.builder(
+          key: const Key('tiles-scroll'),
+          controller: scrollController,
+          itemCount: 200,
+          itemBuilder: (BuildContext context, int index) {
+            return Padding(
+              padding: const EdgeInsets.all(5.0),
+              child: Material(
+                elevation: (index % 5 + 1).toDouble(),
+                color: Colors.white,
+                child: IconBar(),
+              ),
+            );
+          },
+        ),
       ),
       drawer: const GalleryDrawer(),
     );
@@ -114,8 +168,8 @@ class TileScrollLayout extends StatelessWidget {
 }
 
 class ComplexLayout extends StatefulWidget {
-  ScrollController scrollController;
-  ComplexLayout(this.scrollController, { Key key }) : super(key: key);
+  const ComplexLayout(this.scrollController, { Key key }) : super(key: key);
+  final ScrollController scrollController;
 
   @override
   ComplexLayoutState createState() => ComplexLayoutState(scrollController);
